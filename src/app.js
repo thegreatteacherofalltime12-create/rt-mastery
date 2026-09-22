@@ -11,7 +11,7 @@
 
   var STORE_KEY = 'rt-mastery-v1';
   var MASTERY_BOX = 3;          // box number that counts as mastered
-  var UNLOCK_AT = 0.8;          // fraction of a chapter mastered to unlock the next
+  var UNLOCK_AT = 0.8;          // mastery that marks a chapter cleared, and gates the boss
   var SESSION_SIZE = 12;        // questions per practice round
   var API = '/api';
 
@@ -76,11 +76,6 @@
     var total = ch.questions.length, done = 0;
     ch.questions.forEach(function (q) { if (isMastered(q.id)) done++; });
     return { done: done, total: total, pct: total ? done / total : 0 };
-  }
-
-  function chapterUnlocked(i) {
-    if (i === 0) return true;
-    return chapterMastery(CHAPTERS[i - 1]).pct >= UNLOCK_AT;
   }
 
   function bossUnlocked() {
@@ -355,23 +350,19 @@
         }).join('') + '</div></div>';
     }
 
-    CHAPTERS.forEach(function (c, i) {
+    CHAPTERS.forEach(function (c) {
       var m = chapterMastery(c);
-      var unlocked = chapterUnlocked(i);
       var done = m.pct >= UNLOCK_AT;
-      h += '<button class="zone ' + (unlocked ? '' : 'locked') + ' ' + (done ? 'done' : '') + '"' +
-        (unlocked ? ' data-chapter="' + c.id + '"' : ' disabled') + '>' +
+      h += '<button class="zone ' + (done ? 'done' : '') + '" data-chapter="' + c.id + '">' +
         '<span class="orb" style="background:var(--' + c.color + ')22;color:var(--' + c.color + ')">' +
-        (unlocked ? 'Ch' + c.number : '&#128274;') + '</span>' +
+        'Ch' + c.number + '</span>' +
         '<span class="grow">' +
-        '<div class="ztitle">' + esc(c.title) + '</div>' +
-        '<div class="zmeta">' + (unlocked
-          ? m.done + ' of ' + m.total + ' locked in &middot; ' + Math.round(m.pct * 100) + '%'
-          : 'Reach ' + Math.round(UNLOCK_AT * 100) + '% on Chapter ' + CHAPTERS[i - 1].number + ' to unlock') +
-        '</div>' +
+        '<div class="ztitle">' + esc(c.title) + (done ? ' &#10003;' : '') + '</div>' +
+        '<div class="zmeta">' + m.done + ' of ' + m.total + ' locked in &middot; ' +
+        Math.round(m.pct * 100) + '%</div>' +
         '<span class="bar thin"><i style="width:' + (m.pct * 100).toFixed(1) + '%;background:var(--' + c.color + ')"></i></span>' +
         '</span>' +
-        '<span class="chev">' + (unlocked ? '&rsaquo;' : '') + '</span>' +
+        '<span class="chev">&rsaquo;</span>' +
         '</button>';
     });
 
@@ -628,7 +619,10 @@
         h += '<div class="card"><div style="display:flex;justify-content:space-between;margin-bottom:8px">' +
           '<strong>Ch ' + ch.number + ' mastery</strong><span class="dim">' + m.done + '/' + m.total + '</span></div>' +
           '<div class="bar"><i style="width:' + (m.pct * 100).toFixed(1) + '%;background:var(--' + ch.color + ')"></i></div>' +
-          (m.pct >= UNLOCK_AT ? '<p class="faint" style="margin:10px 0 0">&#10003; Chapter cleared &mdash; next one unlocked.</p>' : '') +
+          (m.pct >= UNLOCK_AT
+            ? '<p class="faint" style="margin:10px 0 0">&#10003; Chapter cleared.' +
+              (bossUnlocked() ? ' Every chapter is cleared &mdash; the Final Boss is open.' : '') + '</p>'
+            : '') +
           '</div>';
       }
     }

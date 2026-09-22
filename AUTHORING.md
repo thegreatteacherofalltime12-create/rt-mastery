@@ -165,11 +165,15 @@ In `src/app.js`, near the top:
 
 ```js
 var MASTERY_BOX = 3;   // correct answers needed before a question locks in
-var UNLOCK_AT = 0.8;   // fraction of a chapter mastered to unlock the next
+var UNLOCK_AT = 0.8;   // mastery that marks a chapter cleared, and gates the Final Boss
 var SESSION_SIZE = 12; // questions per practice round
 ```
 
-Lower `MASTERY_BOX` to 2 to make it gentler; raise `UNLOCK_AT` to 0.9 to make it stricter.
+All chapters are open from the start — students choose what to study. `UNLOCK_AT` only controls the
+green "cleared" marker and when the Final Boss becomes available.
+
+Lower `MASTERY_BOX` to 2 to make it gentler; raise `UNLOCK_AT` to 0.9 to make the boss harder to
+reach.
 
 ---
 

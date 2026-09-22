@@ -4,8 +4,8 @@ A mastery-based study game for a **Therapeutic Recreation** course at Lindenwood
 
 Students were handed flashcards and retained almost nothing — flashcards let you *recognise* an answer
 without *knowing* it, and there is no consequence for guessing. RT Mastery replaces recognition with
-retrieval: every question must be answered correctly three separate times before it locks in, missing
-one knocks it back down, and chapters stay locked until the previous one is genuinely mastered.
+retrieval: every question must be answered correctly three separate times before it locks in, and
+missing one knocks it back down so it returns almost immediately.
 
 In deployment it carries **229 questions** across five chapters, authored from the instructor's own
 lecture notes — 142 of them flagged as likely exam questions based on markers in those notes.
@@ -25,7 +25,7 @@ Phone-first web app  ·  No login, no app install  ·  Free to run
 
 | | |
 |---|---|
-| **Mastery map** | Five chapter "zones". Each needs 80% mastery to unlock the next. |
+| **Mastery map** | Five chapter "zones", all open from the start. Each shows live mastery and is marked cleared at 80%. |
 | **Spaced repetition** | Leitner boxes — right answers promote a question, a wrong answer drops it two boxes so it comes straight back. |
 | **Six question types** | Multiple choice, select-all, matching, ordering, fill-in-the-blank, and clinical scenarios. Choices are shuffled every time, so position can't be memorised. |
 | **Final boss** | 25 questions, all chapters, 15 minutes, no feedback until the end. Unlocks only at 80% across the board. |
