@@ -11,4 +11,4 @@ not_found_handling = "single-page-application"
 
 [vars]
 # Non-secret defaults. Secrets go in via: wrangler secret put <NAME>
-FIREBASE_PROJECT_ID = "dojomojo"
+FIREBASE_PROJECT_ID = "dojomojo-2becb"
