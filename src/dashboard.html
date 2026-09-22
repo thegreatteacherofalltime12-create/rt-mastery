@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex">
+<title>RT Mastery — Instructor</title>
+<link rel="stylesheet" href="styles.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📊</text></svg>">
+<style>
+  #app { max-width: 1000px; }
+  .who { font-weight: 650; }
+  .mini { height: 5px; border-radius: 999px; background: var(--card-hi); overflow: hidden; width: 90px; }
+  .mini > i { display: block; height: 100%; background: var(--accent); }
+  tr.stale td { opacity: 0.55; }
+</style>
+</head>
+<body>
+<div id="app">
+  <div class="topbar"><strong style="font-size:1rem">📊 Instructor dashboard</strong></div>
+
+  <div class="card" id="loginCard">
+    <p class="dim" style="font-size:0.9rem">Enter the class code you gave your students and your instructor PIN.</p>
+    <div class="field"><label for="code">Class code</label>
+      <input id="code" type="text" placeholder="e.g. RT101" autocapitalize="characters"></div>
+    <div class="field"><label for="pin">Instructor PIN</label>
+      <input id="pin" type="password" placeholder="Your PIN" autocomplete="off"></div>
+    <button class="btn" id="go">Load class</button>
+    <p class="faint" style="margin-top:10px">The PIN is set with <code>wrangler secret put INSTRUCTOR_PIN</code>. It is checked on the server — students cannot see this data.</p>
+  </div>
+
+  <div id="out"></div>
+</div>
+
+<script>
+(function () {
+  'use strict';
+  var out = document.getElementById('out');
+
+  function esc(s) {
+    return String(s == null ? '' : s)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  }
+
+  function ago(iso) {
+    if (!iso) return '—';
+    var d = Date.now() - new Date(iso).getTime();
+    if (isNaN(d)) return '—';
+    var h = Math.floor(d / 3600000);
+    if (h < 1) return 'just now';
+    if (h < 24) return h + 'h ago';
+    var days = Math.floor(h / 24);
+    return days + 'd ago';
+  }
+
+  function load() {
+    var code = document.getElementById('code').value.trim();
+    var pin = document.getElementById('pin').value;
+    if (!code || !pin) return;
+    out.innerHTML = '<div class="card dim">Loading…</div>';
+
+    fetch('/api/class?code=' + encodeURIComponent(code) + '&pin=' + encodeURIComponent(pin))
+      .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, j: j }; }); })
+      .then(function (res) {
+        if (!res.ok) {
+          out.innerHTML = '<div class="card"><h3>Could not load</h3><p class="dim">' +
+            esc(res.j.error || 'Unknown error') + '</p></div>';
+          return;
+        }
+        render(res.j);
+        try { sessionStorage.setItem('rt-dash', JSON.stringify({ code: code, pin: pin })); } catch (e) {}
+      })
+      .catch(function () {
+        out.innerHTML = '<div class="card"><h3>Network error</h3><p class="dim">Could not reach the server.</p></div>';
+      });
+  }
+
+  function render(d) {
+    var s = d.students || [];
+    if (!s.length) {
+      out.innerHTML = '<div class="card"><h3>No students yet</h3><p class="dim">Nobody has played with the class code <b>' +
+        esc(d.code) + '</b> yet. Students enter it on the welcome screen.</p></div>';
+      return;
+    }
+
+    var totalQ = s[0].totalQuestions || 0;
+    var avg = Math.round(s.reduce(function (n, x) { return n + (x.mastered || 0); }, 0) / s.length);
+    var active = s.filter(function (x) {
+      return x.updatedAt && (Date.now() - new Date(x.updatedAt)) < 7 * 86400000;
+    }).length;
+
+    var h = '<div class="statgrid">' +
+      '<div class="stat"><div class="n">' + s.length + '</div><div class="l">Students</div></div>' +
+      '<div class="stat"><div class="n">' + active + '</div><div class="l">Active this week</div></div>' +
+      '<div class="stat"><div class="n">' + (totalQ ? Math.round(100 * avg / totalQ) : 0) + '%</div><div class="l">Class average</div></div>' +
+      '</div>';
+
+    if ((d.classWeak || []).length) {
+      h += '<div class="card"><h3>What the class is struggling with most</h3>' +
+        '<p class="faint" style="margin-top:-4px">Ranked by how many students have it as a weak topic. Worth re-teaching.</p>' +
+        '<div class="chiprow">' +
+        d.classWeak.map(function (w) {
+          var sev = w.students >= Math.max(2, s.length * 0.4) ? 'bad' : '';
+          return '<span class="chip ' + sev + '">' + esc(w.topic) + ' &middot; ' + w.students + '</span>';
+        }).join('') + '</div></div>';
+    }
+
+    h += '<div class="card"><h3>Students</h3><div class="tablewrap"><table>' +
+      '<tr><th>Name</th><th class="num">Mastered</th><th>Progress</th><th class="num">Rounds</th>' +
+      '<th class="num">Best exam</th><th>Weakest topics</th><th class="num">Last seen</th></tr>' +
+      s.map(function (x) {
+        var pct = x.totalQuestions ? Math.round(100 * (x.mastered || 0) / x.totalQuestions) : 0;
+        var stale = !x.updatedAt || (Date.now() - new Date(x.updatedAt)) > 7 * 86400000;
+        var best = (x.examRuns || []).reduce(function (m, r) { return Math.max(m, r.pct || 0); }, 0);
+        return '<tr class="' + (stale ? 'stale' : '') + '">' +
+          '<td class="who">' + esc(x.name) + '</td>' +
+          '<td class="num">' + (x.mastered || 0) + '/' + (x.totalQuestions || 0) + '</td>' +
+          '<td><span class="mini"><i style="width:' + pct + '%"></i></span> <span class="faint">' + pct + '%</span></td>' +
+          '<td class="num">' + (x.sessions || 0) + '</td>' +
+          '<td class="num">' + (best ? best + '%' : '—') + '</td>' +
+          '<td class="faint">' + esc((x.weakTopics || []).slice(0, 3).join(', ') || '—') + '</td>' +
+          '<td class="num faint">' + ago(x.updatedAt) + '</td>' +
+          '</tr>';
+      }).join('') + '</table></div>' +
+      '<p class="faint" style="margin-top:10px">Greyed rows have not played in over a week.</p></div>';
+
+    h += '<button class="btn ghost sm" id="refresh">Refresh</button>';
+    out.innerHTML = h;
+    document.getElementById('refresh').onclick = load;
+  }
+
+  document.getElementById('go').onclick = load;
+  document.getElementById('pin').addEventListener('keydown', function (e) {
+    if (e.key === 'Enter') load();
+  });
+
+  // restore the last code/pin for this tab only
+  try {
+    var prev = JSON.parse(sessionStorage.getItem('rt-dash') || 'null');
+    if (prev) {
+      document.getElementById('code').value = prev.code || '';
+      document.getElementById('pin').value = prev.pin || '';
+    }
+  } catch (e) {}
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,16 @@
+{
+  "name": "rt-mastery",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Mastery-based study game for a Therapeutic Recreation course at Lindenwood University.",
+  "scripts": {
+    "build": "node build.js",
+    "dev": "node build.js && node dev-server.js",
+    "preview": "npm run build && wrangler dev",
+    "deploy": "npm run build && wrangler deploy"
+  },
+  "devDependencies": {
+    "wrangler": "^3.90.0"
+  },
+  "license": "MIT"
+}

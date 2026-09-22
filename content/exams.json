@@ -1,0 +1,49 @@
+{
+  "_README": "INSTRUCTOR: Edit this file to set up exam study modes. Each exam becomes its own 'Exam Prep' button in the game. You do not need to touch any other file. After editing, run: npm run build",
+  "_FIELDS": {
+    "id": "Short unique id, letters/numbers/dashes only. Example: exam-1",
+    "name": "What students see. Example: Exam 1 (Chapters 2-4)",
+    "date": "Optional. YYYY-MM-DD. Shows a countdown to students.",
+    "chapters": "Array of chapter ids to pull questions from: ch2, ch3, ch4, ch6, ch7",
+    "topics": "Optional. Array of topic names to narrow further. Leave empty [] for all topics in those chapters. Topic names are the 'topic' field on each question.",
+    "questionCount": "How many questions in one timed run.",
+    "minutes": "Time limit for the timed run. Use 0 for untimed.",
+    "passMark": "Percent needed to count as a pass. Example: 80",
+    "note": "Optional message shown to students before they start."
+  },
+  "exams": [
+    {
+      "id": "exam-1",
+      "name": "Exam 1 — Chapters 2, 3 & 4",
+      "date": "",
+      "chapters": ["ch2", "ch3", "ch4"],
+      "topics": [],
+      "questionCount": 40,
+      "minutes": 45,
+      "passMark": 80,
+      "note": "Placeholder exam. Your instructor will update the date, question count, and covered topics."
+    },
+    {
+      "id": "exam-2",
+      "name": "Exam 2 — Chapters 6 & 7",
+      "date": "",
+      "chapters": ["ch6", "ch7"],
+      "topics": [],
+      "questionCount": 35,
+      "minutes": 40,
+      "passMark": 80,
+      "note": "Placeholder exam. Your instructor will update the date, question count, and covered topics."
+    },
+    {
+      "id": "final",
+      "name": "Final Exam — Everything",
+      "date": "",
+      "chapters": ["ch2", "ch3", "ch4", "ch6", "ch7"],
+      "topics": [],
+      "questionCount": 60,
+      "minutes": 75,
+      "passMark": 80,
+      "note": "Comprehensive review across every chapter in the game."
+    }
+  ]
+}

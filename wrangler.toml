@@ -1,0 +1,13 @@
+name = "rt-mastery"
+main = "worker/index.js"
+compatibility_date = "2025-01-01"
+
+# Static game files are served straight from dist/ at no request cost.
+[assets]
+directory = "./dist"
+binding = "ASSETS"
+not_found_handling = "single-page-application"
+
+[vars]
+# Non-secret defaults. Secrets go in via: wrangler secret put <NAME>
+FIREBASE_PROJECT_ID = "dojomojo"

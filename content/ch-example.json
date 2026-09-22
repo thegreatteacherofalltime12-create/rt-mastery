@@ -1,0 +1,117 @@
+{
+  "_README": "Sample chapter shipped with the public repo so the project builds and is playable straight after cloning. It demonstrates all six question types. Real course content lives in separate ch*.json files that are not published. Delete this file once you have added your own chapters.",
+  "id": "ch-example",
+  "sample": true,
+  "number": 1,
+  "title": "Sample Chapter — How This Game Works",
+  "subtitle": "A demo of all six question types",
+  "icon": "book",
+  "color": "sky",
+  "questions": [
+    {
+      "id": "ex-01",
+      "type": "mc",
+      "topic": "Mastery",
+      "flag": "test",
+      "prompt": "How many times must a question be answered correctly before it locks in as mastered?",
+      "choices": ["Once", "Twice", "Three times", "It never locks in"],
+      "answer": 2,
+      "explain": "Three correct answers on separate encounters. This is the whole point — recognising an answer once is not the same as knowing it. The threshold is MASTERY_BOX in src/app.js."
+    },
+    {
+      "id": "ex-02",
+      "type": "mc",
+      "topic": "Mastery",
+      "prompt": "What happens when you get a question wrong?",
+      "choices": [
+        "Nothing — it stays at the same level",
+        "It drops two boxes, so it comes back around quickly",
+        "It is removed from the pool",
+        "The whole chapter resets"
+      ],
+      "answer": 1,
+      "explain": "A miss knocks the question down two Leitner boxes. Questions you struggle with are shown far more often than ones you have locked in."
+    },
+    {
+      "id": "ex-03",
+      "type": "multi",
+      "topic": "Question Types",
+      "prompt": "Select ALL question types this engine supports.",
+      "choices": [
+        "Multiple choice",
+        "Select all that apply",
+        "Matching",
+        "Ordering",
+        "Fill in the blank",
+        "Clinical scenario",
+        "Freehand drawing",
+        "Audio transcription"
+      ],
+      "answer": [0, 1, 2, 3, 4, 5],
+      "explain": "Six types: mc, multi, match, order, fill, and scenario. Drawing and audio are not supported."
+    },
+    {
+      "id": "ex-04",
+      "type": "match",
+      "topic": "Question Types",
+      "prompt": "Match each question type to what it asks the student to do.",
+      "pairs": [
+        ["mc", "Choose one correct option from a shuffled list"],
+        ["multi", "Select every correct option — the set must be exact"],
+        ["order", "Arrange items into the correct sequence"],
+        ["fill", "Type the answer, matched ignoring case and punctuation"]
+      ],
+      "explain": "Terms and definitions are both shuffled each time, so students cannot learn positions instead of content."
+    },
+    {
+      "id": "ex-05",
+      "type": "order",
+      "topic": "Workflow",
+      "prompt": "Put the steps for adding new content in the correct order.",
+      "items": [
+        "Edit or add a JSON file in content/",
+        "Run npm run build",
+        "Fix anything the validator reports",
+        "Deploy with npm run deploy"
+      ],
+      "explain": "The build validates every question before it bundles. A typo fails the build rather than reaching students — see build.js."
+    },
+    {
+      "id": "ex-06",
+      "type": "fill",
+      "topic": "Workflow",
+      "prompt": "Which single command builds and validates all content? npm run ________",
+      "answer": ["build", "npm run build"],
+      "explain": "npm run build. Matching ignores case, punctuation and extra spaces, and you can list several accepted spellings in the answer array."
+    },
+    {
+      "id": "ex-07",
+      "type": "scenario",
+      "topic": "Mastery",
+      "flag": "test",
+      "prompt": "A student has answered 70% of a chapter's questions correctly three times each, but cannot open the next chapter. Why?",
+      "choices": [
+        "They need to complete a timed exam first",
+        "Chapters unlock at 80% mastery, so they are 10 points short",
+        "The next chapter has not been published yet",
+        "Their progress failed to save"
+      ],
+      "answer": 1,
+      "explain": "UNLOCK_AT is 0.8 — a chapter must be 80% mastered before the next one opens. Raise or lower it in src/app.js to change how strict the gating is."
+    },
+    {
+      "id": "ex-08",
+      "type": "multi",
+      "topic": "Privacy",
+      "prompt": "A student plays without entering a class code. What is true? Select all that apply.",
+      "choices": [
+        "They still get the full game",
+        "Progress saves in their browser only",
+        "Their results appear on the instructor dashboard",
+        "They are blocked after one round"
+      ],
+      "answer": [0, 1],
+      "explain": "The class code is optional. Without one the game works fully but progress never leaves the device, so it does not reach the dashboard."
+    }
+  ]
+}

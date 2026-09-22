@@ -1,0 +1,17 @@
+node_modules/
+dist/
+.dev.vars
+.wrangler/
+*.log
+.DS_Store
+Thumbs.db
+
+# Lecture source material is never committed
+*.docx
+*.pptx
+*.pdf
+
+# Course question banks are held privately at the instructor's request.
+# The sample chapter ships so the project builds and is playable on clone.
+content/ch*.json
+!content/ch-example.json
