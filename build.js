@@ -110,7 +110,15 @@ function build() {
 
   fs.mkdirSync(DIST, { recursive: true });
 
-  const payload = { chapters, exams, builtAt: new Date().toISOString() };
+  // `flag` is authoring metadata. Shipping it would let a student read off
+  // which questions the instructor expects on the exam, so strip it from the
+  // bundle while leaving the source files untouched.
+  const shipped = chapters.map((c) => ({
+    ...c,
+    questions: c.questions.map(({ flag, ...q }) => q)
+  }));
+
+  const payload = { chapters: shipped, exams, builtAt: new Date().toISOString() };
   const contentJS = 'window.RT_CONTENT=' + JSON.stringify(payload) + ';';
 
   fs.writeFileSync(path.join(DIST, 'content.js'), contentJS);
@@ -130,9 +138,9 @@ function build() {
 
   const totals = chapters.map((c) => `Ch ${c.number}: ${c.questions.length}`).join(', ');
   const count = chapters.reduce((n, c) => n + c.questions.length, 0);
-  const flagged = chapters.reduce((n, c) => n + c.questions.filter((q) => q.flag === 'test').length, 0);
+  const flagged = chapters.reduce((n, c) => n + c.questions.filter((q) => q.flag === "test").length, 0);
 
-  console.log(`\n  Built dist/ — ${count} questions (${flagged} flagged as likely test questions)`);
+  console.log(`\n  Built dist/ — ${count} questions (${flagged} instructor-flagged, stripped from the bundle)`);
   console.log(`  ${totals}`);
   console.log(`  Exams configured: ${(exams.exams || []).length}`);
   if (usingSample) {

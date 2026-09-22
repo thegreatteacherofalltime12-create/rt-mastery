@@ -487,9 +487,7 @@
       '</div>';
 
     h += '<div class="card pad-lg">';
-    h += '<span class="tag' + (q.flag === 'test' ? ' star' : '') + '">' +
-      (q.flag === 'test' ? '&#11088; Likely test question' : esc(q.topic)) + '</span>';
-    if (q.flag === 'test') h += '<div class="faint" style="margin:-6px 0 8px">' + esc(ch ? 'Ch ' + ch.number : '') + ' &middot; ' + esc(q.topic) + '</div>';
+    h += '<span class="tag">' + (ch ? 'Ch ' + ch.number + ' &middot; ' : '') + esc(q.topic) + '</span>';
     h += '<div class="qprompt">' + esc(q.prompt) + '</div>';
 
     h += renderBody(v);

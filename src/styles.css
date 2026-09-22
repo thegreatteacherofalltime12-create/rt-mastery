@@ -176,7 +176,6 @@ p { margin: 0 0 12px; }
   padding: 4px 9px; border-radius: 6px;
   background: var(--accent-soft); color: var(--accent); margin-bottom: 10px;
 }
-.tag.star { background: #fbbf2422; color: var(--warn); }
 
 .qprompt { font-size: 1.12rem; font-weight: 600; line-height: 1.45; margin-bottom: 16px; }
 
