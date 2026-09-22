@@ -305,3 +305,24 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
 @media (prefers-reduced-motion: reduce) {
   * { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
 }
+
+/* ---------- difficulty levels ---------- */
+.lvchip {
+  display: inline-block; font-size: 0.7rem; font-weight: 700;
+  padding: 2px 7px; border-radius: 5px; margin-right: 5px;
+  letter-spacing: 0.02em;
+}
+.lvchip.lv1 { background: #6d8cff22; color: var(--accent); }
+.lvchip.lv2 { background: #fbbf2422; color: var(--warn); }
+.lvchip.lv3 { background: #f8717122; color: var(--bad); }
+
+.card.levelup {
+  background: linear-gradient(140deg, #2a2050, #1d2740);
+  border-color: var(--accent);
+}
+:root[data-theme="light"] .card.levelup {
+  background: linear-gradient(140deg, #eef1ff, #e6ecff);
+  border-color: var(--accent);
+}
+
+.qprompt { white-space: pre-line; }

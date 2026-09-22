@@ -108,6 +108,54 @@ function build() {
     process.exit(1);
   }
 
+  // ---- level 2: precompute two extra distractors per multiple-choice item ----
+  //
+  // Difficulty is a presentation transform: the same item is served with 4 options
+  // at level 1 and 6 at level 2. Candidates are drawn from the same CHAPTER but a
+  // DIFFERENT topic - same-topic borrowing risks pulling in a statement that is
+  // actually true for this question. Precomputing here (rather than at runtime)
+  // means the strings land in the bundle where they can be read and corrected.
+  function addExtras(chapters) {
+    let filled = 0, thin = 0;
+    for (const ch of chapters) {
+      const mc = ch.questions.filter((q) => q.type === 'mc' || q.type === 'scenario');
+      for (const q of mc) {
+        const mine = new Set(q.choices.map((c) => normStr(c)));
+        const sameTopicAnswers = new Set(
+          mc.filter((o) => o.topic === q.topic && o.id !== q.id)
+            .map((o) => normStr(o.choices[o.answer]))
+        );
+
+        const pool = [];
+        for (const other of mc) {
+          if (other.id === q.id || other.topic === q.topic) continue;
+          for (const c of other.choices) {
+            const n = normStr(c);
+            if (mine.has(n) || sameTopicAnswers.has(n)) continue;
+            if (pool.some((p) => normStr(p) === n)) continue;
+            pool.push(c);
+          }
+        }
+
+        // deterministic pick so a rebuild does not reshuffle what the instructor reviewed
+        const seed = q.id.split('').reduce((a, c) => a + c.charCodeAt(0), 0);
+        const picked = [];
+        for (let i = 0; i < 2 && pool.length; i++) {
+          picked.push(pool.splice((seed * (i + 7)) % pool.length, 1)[0]);
+        }
+        if (picked.length === 2) filled++; else thin++;
+        q.extra = picked;
+      }
+    }
+    return { filled, thin };
+  }
+
+  function normStr(s) {
+    return String(s || '').toLowerCase().trim().replace(/[.,!?;:'"]/g, '').replace(/\s+/g, ' ');
+  }
+
+  const extras = addExtras(chapters);
+
   fs.mkdirSync(DIST, { recursive: true });
 
   // `flag` is authoring metadata. Shipping it would let a student read off
@@ -143,6 +191,9 @@ function build() {
   console.log(`\n  Built dist/ — ${count} questions (${flagged} instructor-flagged, stripped from the bundle)`);
   console.log(`  ${totals}`);
   console.log(`  Exams configured: ${(exams.exams || []).length}`);
+  console.log(`  Level 2 distractors: ${extras.filled} items filled${extras.thin ? `, ${extras.thin} short of two` : ''}`);
+  const withKey = chapters.reduce((n, c) => n + c.questions.filter((q) => q.key).length, 0);
+  console.log(`  Level 3 write-in ready: ${withKey} items`);
   if (usingSample) {
     console.log('  Using the sample chapter — add your own content/ch*.json files to replace it.');
   }

@@ -11,8 +11,17 @@
 
   var STORE_KEY = 'rt-mastery-v1';
   var MASTERY_BOX = 3;          // box number that counts as mastered
-  var UNLOCK_AT = 0.8;          // mastery that marks a chapter cleared, and gates the boss
+  var UNLOCK_AT = 0.8;          // mastery at the current level that promotes a chapter
   var SESSION_SIZE = 12;        // questions per practice round
+  var MAX_LEVEL = 3;
+
+  // Difficulty is a property of how a question is SERVED, not of the question.
+  // The same item is worth more the harder the presentation.
+  var LEVELS = {
+    1: { name: 'Recognise', opts: 4, xp: 10, seconds: 5, blurb: 'Four options' },
+    2: { name: 'Discriminate', opts: 6, xp: 15, seconds: 8, blurb: 'Six options' },
+    3: { name: 'Recall', opts: 0, xp: 25, seconds: 12, blurb: 'No options — type it' }
+  };
   var API = '/api';
 
   // ---------------------------------------------------------------- state
@@ -20,7 +29,8 @@
   var S = {
     screen: 'welcome',
     profile: { name: '', classCode: '' },
-    progress: {},               // qid -> { box, seen, right, wrong, last }
+    progress: {},               // recKey -> { box, seen, right, wrong, last }
+    levels: {},                 // chapterId -> current level (1..3)
     stats: { xp: 0, bestStreak: 0, sessions: 0, examRuns: [] },
     theme: 'dark',
 
@@ -35,6 +45,7 @@
         var d = JSON.parse(raw);
         S.profile = d.profile || S.profile;
         S.progress = d.progress || {};
+        S.levels = d.levels || {};
         S.stats = Object.assign({ xp: 0, bestStreak: 0, sessions: 0, examRuns: [] }, d.stats || {});
         S.theme = d.theme || 'dark';
       }
@@ -45,7 +56,8 @@
   function save() {
     try {
       localStorage.setItem(STORE_KEY, JSON.stringify({
-        profile: S.profile, progress: S.progress, stats: S.stats, theme: S.theme
+        profile: S.profile, progress: S.progress, levels: S.levels,
+        stats: S.stats, theme: S.theme
       }));
     } catch (e) { /* private mode / blocked — game still works in memory */ }
   }
@@ -65,27 +77,75 @@
     return null;
   }
 
-  function rec(qid) {
-    if (!S.progress[qid]) S.progress[qid] = { box: 0, seen: 0, right: 0, wrong: 0, last: 0 };
-    return S.progress[qid];
+  // Level 1 keeps the bare question id so progress saved before levels existed
+  // still counts. Higher levels get their own record and their own climb.
+  function recKey(qid, level) { return level > 1 ? qid + '@' + level : qid; }
+
+  function levelOf(chapterId) {
+    var l = S.levels[chapterId] || 1;
+    return Math.min(MAX_LEVEL, Math.max(1, l));
   }
 
-  function isMastered(qid) { return (S.progress[qid] && S.progress[qid].box) >= MASTERY_BOX; }
+  // Write-in needs either an authored key, an invertible match pair, or a
+  // question that was already free recall. Everything else falls back to level 2.
+  function canWriteIn(q) {
+    return !!(q.key && q.key.length) ||
+           (q.type === 'match' && q.pairs && q.pairs.length) ||
+           q.type === 'fill';
+  }
 
-  function chapterMastery(ch) {
+  function servedLevel(q, level) {
+    if (level >= 3 && !canWriteIn(q)) return 2;
+    return level;
+  }
+
+  function rec(qid, level) {
+    var k = recKey(qid, level || 1);
+    if (!S.progress[k]) S.progress[k] = { box: 0, seen: 0, right: 0, wrong: 0, last: 0 };
+    return S.progress[k];
+  }
+
+  function isMastered(qid, level) {
+    var r = S.progress[recKey(qid, level || 1)];
+    return !!r && r.box >= MASTERY_BOX;
+  }
+
+  function chapterMastery(ch, level) {
+    var lv = level || levelOf(ch.id);
     var total = ch.questions.length, done = 0;
-    ch.questions.forEach(function (q) { if (isMastered(q.id)) done++; });
-    return { done: done, total: total, pct: total ? done / total : 0 };
+    ch.questions.forEach(function (q) { if (isMastered(q.id, lv)) done++; });
+    return { done: done, total: total, pct: total ? done / total : 0, level: lv };
   }
 
+  // Promote a chapter once its current level is mastered. Returns the new level
+  // if it moved, otherwise null — the caller decides whether to celebrate.
+  function checkPromotion(chapterId) {
+    var ch = chapterById(chapterId);
+    if (!ch) return null;
+    var lv = levelOf(chapterId);
+    if (lv >= MAX_LEVEL) return null;
+    if (chapterMastery(ch, lv).pct < UNLOCK_AT) return null;
+    S.levels[chapterId] = lv + 1;
+    save();
+    return lv + 1;
+  }
+
+  // The boss needs every chapter cleared at whatever level it currently sits on.
   function bossUnlocked() {
-    return CHAPTERS.length > 0 && CHAPTERS.every(function (c) { return chapterMastery(c).pct >= UNLOCK_AT; });
+    return CHAPTERS.length > 0 && CHAPTERS.every(function (c) {
+      return levelOf(c.id) > 1 || chapterMastery(c, 1).pct >= UNLOCK_AT;
+    });
   }
 
+  // Overall counts every level a student has cleared, so the bar keeps moving
+  // after a chapter promotes instead of snapping back to zero.
   function overall() {
     var total = 0, done = 0;
     CHAPTERS.forEach(function (c) {
-      var m = chapterMastery(c); total += m.total; done += m.done;
+      for (var lv = 1; lv <= MAX_LEVEL; lv++) {
+        total += c.questions.length;
+        c.questions.forEach(function (q) { if (isMastered(q.id, lv)) done++; });
+      }
     });
     return { done: done, total: total, pct: total ? done / total : 0 };
   }
@@ -110,21 +170,44 @@
       .replace(/[.,!?;:'"]/g, '').replace(/\s+/g, ' ');
   }
 
+  // True when two strings differ by at most one insert, delete or substitution.
+  function editDistance1(a, b) {
+    if (a === b) return true;
+    var la = a.length, lb = b.length;
+    if (Math.abs(la - lb) > 1) return false;
+    var i = 0, j = 0, diffs = 0;
+    while (i < la && j < lb) {
+      if (a[i] === b[j]) { i++; j++; continue; }
+      if (++diffs > 1) return false;
+      if (la > lb) i++;
+      else if (lb > la) j++;
+      else { i++; j++; }
+    }
+    return diffs + (la - i) + (lb - j) <= 1;
+  }
+
   // ---------------------------------------------------------------- session building
 
   // Pick questions weighted toward what the student has not locked in yet.
-  function buildSession(pool, size) {
+  function buildSession(pool, size, level) {
+    var lv = level || 1;
     var byBox = [[], [], [], []];
     pool.forEach(function (q) {
-      var b = Math.min(3, Math.max(0, (S.progress[q.id] && S.progress[q.id].box) || 0));
+      var r = S.progress[recKey(q.id, lv)];
+      var b = Math.min(3, Math.max(0, (r && r.box) || 0));
       byBox[b].push(q);
     });
     var picked = [];
-    // box 0 and 1 first (never seen / struggling), then 2, then mastered review
+    // box 0 and 1 first (never seen / struggling), then 2, then mastered review.
+    // At level 3, put the genuinely write-in-able questions at the front of each
+    // box so a Recall round actually feels like recall rather than more options.
     [0, 1, 2, 3].forEach(function (b) {
       if (picked.length >= size) return;
-      var need = size - picked.length;
-      picked = picked.concat(shuffle(byBox[b]).slice(0, need));
+      var bucket = shuffle(byBox[b]);
+      if (lv >= 3) {
+        bucket = bucket.filter(canWriteIn).concat(bucket.filter(function (q) { return !canWriteIn(q); }));
+      }
+      picked = picked.concat(bucket.slice(0, size - picked.length));
     });
     return shuffle(picked);
   }
@@ -140,6 +223,59 @@
   }
 
   // ---------------------------------------------------------------- grading
+
+  // Serve a question at a difficulty level by rewriting it into a shape the
+  // engine already renders and grades. Level 2 is still an `mc`; level 3 is
+  // still a `fill`. No new question types, no new grading branches.
+  function serve(q, level) {
+    var lv = servedLevel(q, level || 1);
+
+    if (lv === 2 && (q.type === 'mc' || q.type === 'scenario') && q.extra && q.extra.length) {
+      var choices = q.choices.concat(q.extra);
+      return Object.assign({}, q, { choices: choices, answer: q.answer, _level: 2 });
+    }
+
+    if (lv === 3 && q.key) {
+      var accepted = [q.key].concat(q.accept || []);
+      return Object.assign({}, q, {
+        type: 'fill',
+        answer: accepted,
+        hint: q.hint || '',
+        _level: 3,
+        _origType: q.type
+      });
+    }
+
+    // A matching question inverts cleanly into free recall: show one definition,
+    // ask for the term. A different pair each time it comes round.
+    if (lv === 3 && q.type === 'match' && q.pairs && q.pairs.length) {
+      var pair = q.pairs[Math.floor(Math.random() * q.pairs.length)];
+      return Object.assign({}, q, {
+        type: 'fill',
+        prompt: 'Which term means this?\n“' + pair[1] + '”',
+        answer: [pair[0]].concat(termVariants(pair[0])),
+        hint: 'One term from ' + q.topic + '.',
+        _level: 3,
+        _origType: 'match'
+      });
+    }
+
+    return Object.assign({}, q, { _level: 1 });
+  }
+
+  // Accept the obvious ways a student might type a term they clearly know.
+  function termVariants(term) {
+    var t = String(term).trim();
+    var out = [];
+    var noArticle = t.replace(/^(the|a|an)\s+/i, '');
+    if (noArticle !== t) out.push(noArticle);
+    out.push('the ' + noArticle);
+    var stripped = noArticle.replace(/\s+(therapy|model|ego|stage|approach|conditioning)$/i, '');
+    if (stripped !== noArticle && stripped.length > 3) out.push(stripped);
+    if (/s$/i.test(noArticle)) out.push(noArticle.replace(/s$/i, ''));
+    else out.push(noArticle + 's');
+    return out;
+  }
 
   // Prepare a question for display: shuffle choices while tracking the answer.
   function prep(q) {
@@ -197,18 +333,29 @@
     }
     if (q.type === 'fill') {
       var got2 = norm(v.value);
-      return (q.answer || []).some(function (a) { return norm(a) === got2; });
+      if (!got2) return false;
+      return (q.answer || []).some(function (a) {
+        var want = norm(a);
+        if (want === got2) return true;
+        // Forgive a single typo, but only on words long enough that a near-miss
+        // cannot be a different term. "id" and "ego" must stay exact.
+        if (want.length >= 6 && Math.abs(want.length - got2.length) <= 1) {
+          return editDistance1(want, got2);
+        }
+        return false;
+      });
     }
     return false;
   }
 
-  function applyResult(qid, ok, practice) {
-    var r = rec(qid);
+  function applyResult(qid, ok, practice, level) {
+    var lv = level || 1;
+    var r = rec(qid, lv);
     r.seen++; r.last = Date.now();
     if (ok) {
       r.right++;
       if (practice) r.box = Math.min(MASTERY_BOX, r.box + 1);
-      S.stats.xp += 10;
+      S.stats.xp += (LEVELS[lv] || LEVELS[1]).xp;   // harder levels pay more
     } else {
       r.wrong++;
       if (practice) r.box = Math.max(0, r.box - 2);  // miss it, and it comes back soon
@@ -351,15 +498,19 @@
     }
 
     CHAPTERS.forEach(function (c) {
-      var m = chapterMastery(c);
-      var done = m.pct >= UNLOCK_AT;
-      h += '<button class="zone ' + (done ? 'done' : '') + '" data-chapter="' + c.id + '">' +
+      var lv = levelOf(c.id);
+      var m = chapterMastery(c, lv);
+      var maxed = lv >= MAX_LEVEL && m.pct >= UNLOCK_AT;
+      var info = LEVELS[lv];
+      h += '<button class="zone ' + (maxed ? 'done' : '') + '" data-chapter="' + c.id + '">' +
         '<span class="orb" style="background:var(--' + c.color + ')22;color:var(--' + c.color + ')">' +
         'Ch' + c.number + '</span>' +
         '<span class="grow">' +
-        '<div class="ztitle">' + esc(c.title) + (done ? ' &#10003;' : '') + '</div>' +
-        '<div class="zmeta">' + m.done + ' of ' + m.total + ' locked in &middot; ' +
-        Math.round(m.pct * 100) + '%</div>' +
+        '<div class="ztitle">' + esc(c.title) + (maxed ? ' &#10003;' : '') + '</div>' +
+        '<div class="zmeta">' +
+        '<span class="lvchip lv' + lv + '">Lv ' + lv + ' &middot; ' + info.name + '</span> ' +
+        m.done + '/' + m.total + ' at this level' +
+        '</div>' +
         '<span class="bar thin"><i style="width:' + (m.pct * 100).toFixed(1) + '%;background:var(--' + c.color + ')"></i></span>' +
         '</span>' +
         '<span class="chev">&rsaquo;</span>' +
@@ -585,8 +736,11 @@
     } else if (q.type === 'fill') {
       h += '<div class="field"><input id="fillin" type="text" autocomplete="off" autocapitalize="off" ' +
         'placeholder="Type your answer" value="' + esc(v.value) + '"' + (v.answered ? ' disabled' : '') + '></div>';
+      if (!v.answered && q.hint) {
+        h += '<p class="faint" style="margin:-6px 0 4px">&#128161; ' + esc(q.hint) + '</p>';
+      }
       if (v.answered && !v.correct) {
-        h += '<p class="faint">Accepted answer: <b>' + esc((q.answer || [])[0]) + '</b></p>';
+        h += '<p class="faint">Answer: <b>' + esc((q.answer || [])[0]) + '</b></p>';
       }
     }
     return h;
@@ -610,10 +764,20 @@
         (passed ? '&#10003; Passed (' + r.passMark + '% needed)' : 'Below the ' + r.passMark + '% pass mark') + '</p>' : '') +
       '</div>';
 
+    if (r.promotedTo) {
+      var pl = LEVELS[r.promotedTo];
+      h += '<div class="card levelup center">' +
+        '<div style="font-size:2.2rem;line-height:1">&#127882;</div>' +
+        '<h3 style="margin:6px 0 4px">Level ' + r.promotedTo + ' unlocked</h3>' +
+        '<p class="dim" style="margin:0">This chapter now serves <b>' + esc(pl.name) + '</b> &mdash; ' +
+        esc(pl.blurb).toLowerCase() + '. Worth ' + pl.xp + ' XP a question.</p>' +
+        '</div>';
+    }
+
     if (r.mode === 'practice') {
       var ch = chapterById(r.chapterId);
       if (ch) {
-        var m = chapterMastery(ch);
+        var m = chapterMastery(ch, r.level || 1);
         h += '<div class="card"><div style="display:flex;justify-content:space-between;margin-bottom:8px">' +
           '<strong>Ch ' + ch.number + ' mastery</strong><span class="dim">' + m.done + '/' + m.total + '</span></div>' +
           '<div class="bar"><i style="width:' + (m.pct * 100).toFixed(1) + '%;background:var(--' + ch.color + ')"></i></div>' +
@@ -650,12 +814,14 @@
   function startPractice(chapterId) {
     var ch = chapterById(chapterId);
     if (!ch) return;
+    var lv = levelOf(chapterId);
     var pool = ch.questions.map(function (q) { return Object.assign({ chapter: ch.id }, q); });
-    var picked = buildSession(pool, Math.min(SESSION_SIZE, pool.length));
+    var picked = buildSession(pool, Math.min(SESSION_SIZE, pool.length), lv);
     S.run = {
-      mode: 'practice', chapterId: chapterId,
-      title: 'Ch ' + ch.number,
-      views: picked.map(prep), idx: 0, streak: 0,
+      mode: 'practice', chapterId: chapterId, level: lv,
+      title: 'Ch ' + ch.number + ' · L' + lv,
+      views: picked.map(function (q) { return prep(serve(q, lv)); }),
+      idx: 0, streak: 0,
       deadline: null, hideFeedback: false, passMark: 0
     };
     S.screen = 'play';
@@ -700,13 +866,16 @@
     var r = S.run;
     // any unanswered questions (ran out of time) count as missed
     r.views.forEach(function (v) {
-      if (!v.answered) { v.answered = true; v.correct = false; applyResult(v.q.id, false, r.mode === 'practice'); }
+      if (!v.answered) { v.answered = true; v.correct = false; applyResult(v.q.id, false, r.mode === "practice", v.q._level || 1); }
     });
 
     var right = r.views.filter(function (v) { return v.correct; }).length;
     var pct = Math.round(100 * right / r.views.length);
 
-    if (r.mode === 'practice') S.stats.sessions++;
+    if (r.mode === 'practice') {
+      S.stats.sessions++;
+      r.promotedTo = checkPromotion(r.chapterId);   // may be null
+    }
     if (r.mode === 'exam' || r.mode === 'boss') {
       S.stats.examRuns = (S.stats.examRuns || []).concat([{
         id: r.examId || 'boss', name: r.title, pct: pct, at: new Date().toISOString()
@@ -734,7 +903,7 @@
     if (v.answered) return;
     v.correct = grade(v);
     v.answered = true;
-    applyResult(v.q.id, v.correct, r.mode === 'practice');
+    applyResult(v.q.id, v.correct, r.mode === "practice", v.q._level || 1);
 
     if (v.correct) {
       r.streak++;
