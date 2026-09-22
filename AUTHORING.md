@@ -175,8 +175,10 @@ Lower `MASTERY_BOX` to 2 to make it gentler; raise `UNLOCK_AT` to 0.9 to make it
 
 ## A note on one content discrepancy
 
-`ch2-52` covers the PERMA model. The lecture notes list it as *Positive Emotions, Relationships,
-Meaning, Achievement* — four items. The standard model is five: **P**ositive emotions,
-**E**ngagement, **R**elationships, **M**eaning, **A**chievement. The game teaches the five-item
-version and says so in the explanation, since "PERMA" has five letters. If the exam follows the
-notes exactly, edit that question.
+`ch2-52` covers the PERMA model. The lecture notes list four items — *Positive Emotions,
+Relationships, Meaning, Achievement* — while most textbooks list five, adding **E**ngagement.
+
+The question is graded against **the lecture notes**, since that is what the exam follows. The
+explanation flags the textbook version so students recognise Engagement if they meet it elsewhere.
+If the course later adopts the five-item model, change `answer` and the first choice to include
+Engagement.
