@@ -179,10 +179,10 @@ reach.
 
 ## A note on one content discrepancy
 
-`ch2-52` covers the PERMA model. The lecture notes list four items — *Positive Emotions,
+`ch2-52` covers the PERMA model. The course textbook lists four items — *Positive Emotions,
 Relationships, Meaning, Achievement* — while most textbooks list five, adding **E**ngagement.
 
-The question is graded against **the lecture notes**, since that is what the exam follows. The
+The question is graded against **the textbook**, since that is what the exam follows. The
 explanation flags the textbook version so students recognise Engagement if they meet it elsewhere.
 If the course later adopts the five-item model, change `answer` and the first choice to include
 Engagement.
