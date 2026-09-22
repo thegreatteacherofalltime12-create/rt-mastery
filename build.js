@@ -170,7 +170,7 @@ function build() {
   const contentJS = 'window.RT_CONTENT=' + JSON.stringify(payload) + ';';
 
   fs.writeFileSync(path.join(DIST, 'content.js'), contentJS);
-  for (const f of ['index.html', 'styles.css', 'app.js', 'dashboard.html']) {
+  for (const f of ['index.html', 'styles.css', 'app.js', 'dashboard.html', 'room.html']) {
     fs.copyFileSync(path.join(SRC, f), path.join(DIST, f));
   }
 

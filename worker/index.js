@@ -178,6 +178,7 @@ async function handleProgress(request, env) {
     mastered: Number(body.mastered) || 0,
     totalQuestions: Number(body.totalQuestions) || 0,
     chapters: body.chapters && typeof body.chapters === 'object' ? body.chapters : {},
+    avgLevel: Number(body.avgLevel) || 1,
     weakTopics: Array.isArray(body.weakTopics) ? body.weakTopics.slice(0, 10).map(String) : [],
     examRuns: Array.isArray(body.examRuns) ? body.examRuns.slice(-10) : [],
     lastEvent: body.event && typeof body.event === 'object' ? body.event : null,
@@ -286,6 +287,249 @@ async function handleDelete(url, env) {
   return json({ ok: true, deleted, count: deleted.length });
 }
 
+// ---------------------------------------------------------------- Buy Time
+//
+// A live class round. One shared countdown on the projector; every phone serves
+// that student their own questions at their own level. Correct answers buy the
+// room time. Nothing a student gets wrong ever costs the room anything.
+
+const ROOM_TTL_MS = 3 * 60 * 60 * 1000;   // a room is stale after three hours
+
+// Seconds bought are computed HERE, never taken from the client. Ten students
+// who all know each other will try the obvious thing.
+const SECONDS = {
+  1: [5, 4, 3],     // level 1: under 10s, under 20s, slower
+  2: [8, 6, 5],
+  3: [12, 9, 7]
+};
+const POOL_MULTIPLIER = 2;                // clearing someone else's miss is worth double
+const ALL_HANDS_BONUS = 60;
+const MAX_SHARE = 0.6;                    // no one student may clear more than this share
+
+let roomCache = { key: null, at: 0, value: null };
+
+function roomPath(env, classCode, roomCode) {
+  return `projects/${env.FIREBASE_PROJECT_ID}/databases/(default)/documents/classes/${classCode}/rooms/${roomCode}`;
+}
+
+async function readRoom(env, classCode, roomCode, maxAgeMs) {
+  const key = classCode + '/' + roomCode;
+  const age = maxAgeMs === undefined ? 900 : maxAgeMs;
+  if (roomCache.key === key && Date.now() - roomCache.at < age) return roomCache.value;
+
+  const token = await getAccessToken(env);
+  const res = await fetch(`${FS}/${roomPath(env, classCode, roomCode)}`, {
+    headers: { Authorization: `Bearer ${token}` }
+  });
+  if (res.status === 404) return null;
+  if (!res.ok) throw new Error('room read failed: ' + res.status);
+  const doc = docToObject(await res.json());
+  roomCache = { key: key, at: Date.now(), value: doc };
+  return doc;
+}
+
+async function writeRoom(env, classCode, roomCode, room) {
+  const token = await getAccessToken(env);
+  const fields = {};
+  for (const k of Object.keys(room)) fields[k] = toFsValue(room[k]);
+  const res = await fetch(`${FS}/${roomPath(env, classCode, roomCode)}`, {
+    method: 'PATCH',
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ fields })
+  });
+  if (!res.ok) throw new Error('room write failed: ' + res.status);
+  roomCache = { key: classCode + '/' + roomCode, at: Date.now(), value: room };
+  return room;
+}
+
+// Four letters, no vowels, so the code cannot spell anything and cannot be
+// misheard as a word across a classroom.
+function makeRoomCode() {
+  const alphabet = 'BCDFGHJKLMNPQRSTVWXYZ';
+  let out = '';
+  const bytes = crypto.getRandomValues(new Uint8Array(4));
+  for (let i = 0; i < 4; i++) out += alphabet[bytes[i] % alphabet.length];
+  return out;
+}
+
+function publicRoom(room) {
+  if (!room) return null;
+  const players = room.players || {};
+  return {
+    code: room.code,
+    state: room.state,
+    target: room.target,
+    cleared: room.cleared || 0,
+    endsAt: room.endsAt || null,
+    pool: (room.pool || []).map((p) => ({ qid: p.qid, topic: p.topic, chapter: p.chapter })),
+    allHands: room.allHands || null,
+    players: Object.keys(players).map((id) => ({
+      id: id, name: players[id].name, cleared: players[id].cleared || 0
+    })).sort((a, b) => b.cleared - a.cleared),
+    perStudentCap: Math.max(1, Math.ceil((room.target || 40) * MAX_SHARE))
+  };
+}
+
+async function handleRoomControl(request, env) {
+  let body;
+  try { body = await request.json(); } catch { return json({ error: 'invalid json' }, 400); }
+
+  const classCode = slug(body.classCode);
+  const pin = body.pin || '';
+  if (!classCode) return json({ error: 'classCode required' }, 400);
+  if (!env.INSTRUCTOR_PIN || pin !== env.INSTRUCTOR_PIN) return json({ error: 'invalid pin' }, 401);
+
+  const action = String(body.action || '');
+
+  if (action === 'create') {
+    const target = Math.min(200, Math.max(5, Number(body.target) || 40));
+    const minutes = Math.min(60, Math.max(1, Number(body.minutes) || 5));
+    const code = makeRoomCode();
+    const room = {
+      code: code, classCode: classCode, state: 'lobby',
+      target: target, startMinutes: minutes, cleared: 0,
+      endsAt: null, pool: [], players: {}, allHands: null,
+      createdAt: new Date().toISOString()
+    };
+    await writeRoom(env, classCode, code, room);
+    return json({ ok: true, room: publicRoom(room) });
+  }
+
+  const roomCode = String(body.code || '').toUpperCase();
+  if (!/^[A-Z]{4}$/.test(roomCode)) return json({ error: 'bad room code' }, 400);
+  const room = await readRoom(env, classCode, roomCode, 0);
+  if (!room) return json({ error: 'room not found' }, 404);
+
+  if (action === 'start') {
+    room.state = 'running';
+    room.endsAt = new Date(Date.now() + room.startMinutes * 60000).toISOString();
+    room.startedAt = new Date().toISOString();
+  } else if (action === 'allhands') {
+    const pool = room.pool || [];
+    if (!pool.length) return json({ error: 'the pool is empty' }, 400);
+    const pick = pool[0];
+    room.allHands = {
+      qid: pick.qid, topic: pick.topic, chapter: pick.chapter,
+      endsAt: new Date(Date.now() + 35000).toISOString(), solved: false
+    };
+  } else if (action === 'extend') {
+    const add = Math.min(300, Math.max(10, Number(body.seconds) || 60));
+    const base = room.endsAt ? new Date(room.endsAt).getTime() : Date.now();
+    room.endsAt = new Date(Math.max(base, Date.now()) + add * 1000).toISOString();
+  } else if (action === 'end') {
+    room.state = 'ended';
+  } else {
+    return json({ error: 'unknown action' }, 400);
+  }
+
+  await writeRoom(env, classCode, roomCode, room);
+  return json({ ok: true, room: publicRoom(room) });
+}
+
+async function handleRoomState(url, env) {
+  const classCode = slug(url.searchParams.get('classCode'));
+  const roomCode = String(url.searchParams.get('code') || '').toUpperCase();
+  if (!classCode || !/^[A-Z]{4}$/.test(roomCode)) return json({ error: 'classCode and code required' }, 400);
+  const room = await readRoom(env, classCode, roomCode);
+  if (!room) return json({ error: 'room not found' }, 404);
+  if (Date.now() - new Date(room.createdAt || 0).getTime() > ROOM_TTL_MS) {
+    return json({ error: 'room expired' }, 410);
+  }
+  return json({ ok: true, room: publicRoom(room), now: new Date().toISOString() });
+}
+
+async function handleRoomEvent(request, env) {
+  let body;
+  try { body = await request.json(); } catch { return json({ error: 'invalid json' }, 400); }
+
+  const classCode = slug(body.classCode);
+  const roomCode = String(body.code || '').toUpperCase();
+  const name = String(body.name || '').trim().slice(0, 80);
+  const studentId = slug(name);
+  if (!classCode || !/^[A-Z]{4}$/.test(roomCode) || !studentId) {
+    return json({ error: 'classCode, code and name are required' }, 400);
+  }
+
+  const room = await readRoom(env, classCode, roomCode, 0);
+  if (!room) return json({ error: 'room not found' }, 404);
+
+  room.players = room.players || {};
+  room.pool = room.pool || [];
+  if (!room.players[studentId]) room.players[studentId] = { name: name, cleared: 0 };
+  room.players[studentId].lastSeen = new Date().toISOString();
+
+  const type = String(body.type || '');
+
+  if (type === 'join') {
+    await writeRoom(env, classCode, roomCode, room);
+    return json({ ok: true, room: publicRoom(room) });
+  }
+
+  if (room.state !== 'running') return json({ error: 'round is not running' }, 409);
+
+  const qid = String(body.qid || '').slice(0, 40);
+  const topic = String(body.topic || '').slice(0, 60);
+  const chapter = String(body.chapter || '').slice(0, 12);
+
+  if (type === 'miss') {
+    // A miss costs the room nothing. It drops into the pool anonymously - the
+    // projector shows topic tags only, never who put it there.
+    if (qid && !room.pool.some((p) => p.qid === qid)) {
+      room.pool.push({ qid: qid, topic: topic, chapter: chapter });
+      if (room.pool.length > 40) room.pool.shift();
+    }
+    await writeRoom(env, classCode, roomCode, room);
+    return json({ ok: true, seconds: 0, room: publicRoom(room) });
+  }
+
+  if (type === 'clear') {
+    const cap = Math.max(1, Math.ceil((room.target || 40) * MAX_SHARE));
+    const mine = room.players[studentId].cleared || 0;
+    const counted = mine < cap;
+
+    // Seconds are derived server-side from the level and speed bucket the client
+    // reports, both clamped. The client never names its own reward.
+    const level = Math.min(3, Math.max(1, Number(body.level) || 1));
+    const bucket = Math.min(2, Math.max(0, Number(body.bucket) || 0));
+    let seconds = SECONDS[level][bucket];
+
+    const fromPool = !!body.fromPool && room.pool.some((p) => p.qid === qid);
+    if (fromPool) {
+      seconds *= POOL_MULTIPLIER;
+      room.pool = room.pool.filter((p) => p.qid !== qid);
+    }
+
+    const answeringAllHands = room.allHands && !room.allHands.solved && room.allHands.qid === qid
+      && Date.now() < new Date(room.allHands.endsAt).getTime();
+    if (answeringAllHands) {
+      seconds = ALL_HANDS_BONUS;
+      room.allHands.solved = true;
+      room.pool = room.pool.filter((p) => p.qid !== qid);
+    }
+
+    if (!counted && !fromPool && !answeringAllHands) seconds = 0;
+
+    if (seconds > 0) {
+      const base = room.endsAt ? new Date(room.endsAt).getTime() : Date.now();
+      room.endsAt = new Date(Math.max(base, Date.now()) + seconds * 1000).toISOString();
+    }
+    if (counted || fromPool || answeringAllHands) {
+      room.cleared = (room.cleared || 0) + 1;
+      room.players[studentId].cleared = mine + 1;
+    }
+    if ((room.cleared || 0) >= (room.target || 40)) room.state = 'won';
+
+    await writeRoom(env, classCode, roomCode, room);
+    return json({
+      ok: true, seconds: seconds, counted: counted,
+      atCap: !counted, fromPool: fromPool, allHands: answeringAllHands,
+      room: publicRoom(room)
+    });
+  }
+
+  return json({ error: 'unknown event type' }, 400);
+}
+
 // ---------------------------------------------------------------- entry
 
 export default {
@@ -305,6 +549,18 @@ export default {
         if (url.pathname === '/api/class' && request.method === 'DELETE') {
           if (!backendReady(env)) return json(NOT_CONFIGURED, 503);
           return await handleDelete(url, env);
+        }
+        if (url.pathname === '/api/room' && request.method === 'GET') {
+          if (!backendReady(env)) return json(NOT_CONFIGURED, 503);
+          return await handleRoomState(url, env);
+        }
+        if (url.pathname === '/api/room' && request.method === 'POST') {
+          if (!backendReady(env)) return json(NOT_CONFIGURED, 503);
+          return await handleRoomControl(request, env);
+        }
+        if (url.pathname === '/api/room/event' && request.method === 'POST') {
+          if (!backendReady(env)) return json(NOT_CONFIGURED, 503);
+          return await handleRoomEvent(request, env);
         }
         if (url.pathname === '/api/health') {
           return json({

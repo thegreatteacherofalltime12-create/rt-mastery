@@ -109,7 +109,7 @@
     }
 
     h += '<div class="card"><h3>Students</h3><div class="tablewrap"><table>' +
-      '<tr><th>Name</th><th class="num">Mastered</th><th>Progress</th><th class="num">Rounds</th>' +
+      '<tr><th>Name</th><th class="num">Level</th><th class="num">Mastered</th><th>Progress</th><th class="num">Rounds</th>' +
       '<th class="num">Best exam</th><th>Weakest topics</th><th class="num">Last seen</th><th></th></tr>' +
       s.map(function (x) {
         var pct = x.totalQuestions ? Math.round(100 * (x.mastered || 0) / x.totalQuestions) : 0;
@@ -117,6 +117,7 @@
         var best = (x.examRuns || []).reduce(function (m, r) { return Math.max(m, r.pct || 0); }, 0);
         return '<tr class="' + (stale ? 'stale' : '') + '">' +
           '<td class="who">' + esc(x.name) + '</td>' +
+          '<td class="num"><b>' + (x.avgLevel || 1) + '</b></td>' +
           '<td class="num">' + (x.mastered || 0) + '/' + (x.totalQuestions || 0) + '</td>' +
           '<td><span class="mini"><i style="width:' + pct + '%"></i></span> <span class="faint">' + pct + '%</span></td>' +
           '<td class="num">' + (x.sessions || 0) + '</td>' +

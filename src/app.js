@@ -372,9 +372,11 @@
     var o = overall();
     var perChapter = {};
     CHAPTERS.forEach(function (c) {
-      var m = chapterMastery(c);
-      perChapter[c.id] = { done: m.done, total: m.total };
+      var lv = levelOf(c.id);
+      var m = chapterMastery(c, lv);
+      perChapter[c.id] = { done: m.done, total: m.total, level: lv };
     });
+    var levelSum = CHAPTERS.reduce(function (n, c) { return n + levelOf(c.id); }, 0);
     var weak = weakestTopics(6).map(function (w) { return w.topic + ' (' + w.pct + '%)'; });
 
     var body = {
@@ -386,6 +388,7 @@
       mastered: o.done,
       totalQuestions: o.total,
       chapters: perChapter,
+      avgLevel: CHAPTERS.length ? Math.round((levelSum / CHAPTERS.length) * 10) / 10 : 1,
       weakTopics: weak,
       examRuns: (S.stats.examRuns || []).slice(-10),
       updatedAt: new Date().toISOString()
@@ -429,6 +432,7 @@
       case 'results': html = viewResults(); break;
       case 'exams': html = viewExams(); break;
       case 'stats': html = viewStats(); break;
+      case 'live': html = viewLive(); break;
       default: html = viewMap();
     }
     app.innerHTML = html;
@@ -526,7 +530,11 @@
       '<button class="btn sm" data-boss ' + (bu ? '' : 'disabled') + '>' + (bu ? 'Enter the boss fight' : 'Locked') + '</button>' +
       '</div>';
 
-    h += '<div class="btn-row" style="margin-top:14px">' +
+    if (S.profile.classCode) {
+      h += '<button class="btn" data-go="live" style="margin-top:14px">&#9201;&#65039; Join live round</button>';
+    }
+
+    h += '<div class="btn-row" style="margin-top:10px">' +
       '<button class="btn ghost sm" data-go="exams">&#128220; Exam prep</button>' +
       '<button class="btn ghost sm" data-go="stats">&#128202; My stats</button>' +
       '</div>';
@@ -809,6 +817,208 @@
     return h;
   }
 
+  // ---------------------------------------------------------------- live round
+  //
+  // Buy Time. One shared clock on the projector; this phone serves its own
+  // questions at this student's own level. A miss costs the room nothing.
+
+  var LIVE = { code: '', room: null, poll: null, view: null, feedback: '', busy: false, misses: {} };
+
+  function liveApi(method, path, body) {
+    var opt = { method: method, headers: { 'Content-Type': 'application/json' } };
+    if (body) opt.body = JSON.stringify(body);
+    return fetch(path, opt)
+      .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, j: j }; }); })
+      .catch(function () { return { ok: false, j: { error: 'offline' } }; });
+  }
+
+  function liveEvent(type, extra) {
+    return liveApi('POST', API + '/room/event', Object.assign({
+      classCode: S.profile.classCode, code: LIVE.code, name: S.profile.name, type: type
+    }, extra || {}));
+  }
+
+  // Pick the next question: a pool item if this student can clear one, otherwise
+  // their own weakest material at their own level.
+  function nextLiveQuestion() {
+    var pool = (LIVE.room && LIVE.room.pool) || [];
+    var all = allQuestions();
+
+    var ah = LIVE.room && LIVE.room.allHands;
+    if (ah && !ah.solved && new Date(ah.endsAt).getTime() > Date.now()) {
+      var hit = all.filter(function (q) { return q.id === ah.qid; })[0];
+      if (hit) return { q: hit, fromPool: true, allHands: true };
+    }
+
+    // do not hand a student back a question they just missed themselves
+    var takeable = pool.filter(function (p) { return !LIVE.misses[p.qid]; });
+    if (takeable.length) {
+      var pq = all.filter(function (q) { return q.id === takeable[0].qid; })[0];
+      if (pq) return { q: pq, fromPool: true, allHands: false };
+    }
+
+    var mine = shuffle(all).sort(function (a, b) {
+      var ra = S.progress[recKey(a.id, levelOf(a.chapter))];
+      var rb = S.progress[recKey(b.id, levelOf(b.chapter))];
+      return ((ra && ra.box) || 0) - ((rb && rb.box) || 0);
+    });
+    return { q: mine[0], fromPool: false, allHands: false };
+  }
+
+  function serveNextLive() {
+    var pick = nextLiveQuestion();
+    if (!pick || !pick.q) { LIVE.view = null; return; }
+    var lv = levelOf(pick.q.chapter);
+    LIVE.view = prep(serve(pick.q, lv));
+    LIVE.view._fromPool = pick.fromPool;
+    LIVE.view._askedAt = Date.now();
+    LIVE.view._level = servedLevel(pick.q, lv);
+  }
+
+  function liveAnswer() {
+    var v = LIVE.view;
+    if (!v || v.answered || LIVE.busy) return;
+    v.correct = grade(v);
+    v.answered = true;
+    LIVE.busy = true;
+
+    var elapsed = (Date.now() - v._askedAt) / 1000;
+    var bucket = elapsed < 10 ? 0 : elapsed < 20 ? 1 : 2;
+    var lv = v._level || 1;
+
+    applyResult(v.q.id, v.correct, true, lv);
+    save();
+
+    if (v.correct) {
+      liveEvent('clear', {
+        qid: v.q.id, topic: v.q.topic, chapter: v.q.chapter,
+        level: lv, bucket: bucket, fromPool: !!v._fromPool
+      }).then(function (res) {
+        LIVE.busy = false;
+        if (res.ok) {
+          LIVE.room = res.j.room;
+          LIVE.feedback = res.j.allHands ? '+' + res.j.seconds + 's for the room — all hands cleared!'
+            : res.j.fromPool ? '+' + res.j.seconds + 's — you cleared one from the pool'
+            : res.j.atCap ? 'Correct — you are at your cap, let someone else buy the time'
+            : '+' + res.j.seconds + 's for the room';
+        } else {
+          LIVE.feedback = 'Correct — saved locally, could not reach the room';
+        }
+        render();
+      });
+    } else {
+      LIVE.misses[v.q.id] = true;
+      liveEvent('miss', { qid: v.q.id, topic: v.q.topic, chapter: v.q.chapter }).then(function (res) {
+        LIVE.busy = false;
+        if (res.ok) LIVE.room = res.j.room;
+        LIVE.feedback = 'Into the pool — costs the room nothing. Someone else can take it.';
+        render();
+      });
+    }
+    render();
+  }
+
+  function liveNext() {
+    LIVE.feedback = '';
+    serveNextLive();
+    render();
+  }
+
+  function startLivePolling() {
+    if (LIVE.poll) clearInterval(LIVE.poll);
+    LIVE.poll = setInterval(function () {
+      if (S.screen !== 'live') { clearInterval(LIVE.poll); LIVE.poll = null; return; }
+      liveApi('GET', API + '/room?classCode=' + encodeURIComponent(S.profile.classCode) + '&code=' + LIVE.code)
+        .then(function (res) {
+          if (!res.ok) return;
+          var wasRunning = LIVE.room && LIVE.room.state === 'running';
+          LIVE.room = res.j.room;
+          if (!wasRunning && LIVE.room.state === 'running' && !LIVE.view) serveNextLive();
+
+          // ALL HANDS interrupts. The window is short, so waiting for the student
+          // to finish whatever they were on would waste most of it.
+          var ah = LIVE.room.allHands;
+          if (ah && !ah.solved && new Date(ah.endsAt).getTime() > Date.now() &&
+              LIVE.view && !LIVE.view.answered && LIVE.view.q.id !== ah.qid) {
+            serveNextLive();
+            LIVE.feedback = '';
+          }
+          render();
+        });
+    }, 2500);
+  }
+
+  function viewLive() {
+    var r = LIVE.room;
+    var h = '<div class="topbar">' +
+      '<button class="iconbtn" data-liveexit>&larr;</button>' +
+      '<strong style="font-size:0.95rem">Buy Time</strong><div class="spacer"></div>' +
+      (r && r.endsAt ? '<span class="pill timer" id="livetimer">--:--</span>' : '') +
+      '</div>';
+
+    if (!r) {
+      return h + '<div class="card pad-lg">' +
+        '<h2 style="margin-bottom:6px">Join the live round</h2>' +
+        '<p class="dim" style="font-size:0.9rem">Your instructor will read out a four letter room code. ' +
+        'Everyone answers their own questions at their own level — nothing you get wrong costs the class anything.</p>' +
+        '<div class="field"><label for="roomcode">Room code</label>' +
+        '<input id="roomcode" maxlength="4" autocapitalize="characters" autocomplete="off" ' +
+        'placeholder="ABCD" style="text-transform:uppercase;letter-spacing:0.3em;font-size:1.4rem;text-align:center"></div>' +
+        '<button class="btn" data-livejoin>Join</button>' +
+        (LIVE.feedback ? '<p class="faint center" style="margin-top:10px">' + esc(LIVE.feedback) + '</p>' : '') +
+        '</div>';
+    }
+
+    if (r.state === 'lobby') {
+      return h + '<div class="card pad-lg center">' +
+        '<div style="font-size:2.4rem">&#9203;</div>' +
+        '<h2>You are in</h2>' +
+        '<p class="dim">Waiting for your instructor to start the clock.</p>' +
+        '<p class="faint">' + r.players.length + ' in the room</p></div>';
+    }
+
+    if (r.state !== 'running') {
+      var won = r.state === 'won' || r.cleared >= r.target;
+      return h + '<div class="card pad-lg center">' +
+        '<div style="font-size:2.8rem">' + (won ? '&#127881;' : '&#9203;') + '</div>' +
+        '<h2>' + (won ? 'The room made it' : 'Time') + '</h2>' +
+        '<p class="dim">' + r.cleared + ' of ' + r.target + ' cleared together</p>' +
+        '</div><button class="btn" data-liveexit2>Back to my map</button>';
+    }
+
+    var pct = Math.min(100, 100 * r.cleared / (r.target || 1));
+    h += '<div class="card" style="padding:12px 14px;margin-bottom:10px">' +
+      '<div style="display:flex;justify-content:space-between;font-size:0.85rem;margin-bottom:6px">' +
+      '<span class="dim">The room</span><span><b>' + r.cleared + '</b> / ' + r.target + '</span></div>' +
+      '<div class="bar"><i style="width:' + pct.toFixed(1) + '%;background:var(--good)"></i></div></div>';
+
+    var ah = r.allHands && !r.allHands.solved && new Date(r.allHands.endsAt).getTime() > Date.now();
+    if (ah) h += '<div class="banner warn" style="text-align:center"><b>&#9995; ALL HANDS</b> &mdash; 60 seconds for the room if you get this</div>';
+
+    var v = LIVE.view;
+    if (!v) return h + '<div class="card"><p class="dim">Finding you a question…</p></div>';
+
+    h += '<div class="card pad-lg">' +
+      '<span class="tag' + (v._fromPool ? ' star' : '') + '">' +
+      (v._fromPool ? '&#128293; From the pool &middot; double time' : 'Lv ' + (v._level || 1) + ' &middot; ' + esc(v.q.topic)) +
+      '</span>' +
+      '<div class="qprompt">' + esc(v.q.prompt) + '</div>' +
+      renderBody(v) + '</div>';
+
+    if (LIVE.feedback) {
+      h += '<div class="feedback ' + (v.correct ? 'good' : 'bad') + '">' + esc(LIVE.feedback) + '</div>';
+    }
+
+    h += '<div class="sticky-actions">';
+    if (!v.answered) {
+      if (needsSubmit(v)) h += '<button class="btn" data-livesubmit>Check answer</button>';
+    } else {
+      h += '<button class="btn" data-livenext>Next question</button>';
+    }
+    h += '</div>';
+    return h;
+  }
+
   // ---------------------------------------------------------------- runs
 
   function startPractice(chapterId) {
@@ -843,6 +1053,18 @@
     render();
     tick();
   }
+
+  // The live clock is derived from the room's absolute deadline, so a dropped
+  // poll never freezes it and phones never drift apart.
+  setInterval(function () {
+    var el = document.getElementById('livetimer');
+    if (!el || !LIVE.room || !LIVE.room.endsAt) return;
+    var left = new Date(LIVE.room.endsAt).getTime() - Date.now();
+    if (left < 0) left = 0;
+    var t = Math.ceil(left / 1000);
+    el.textContent = Math.floor(t / 60) + ':' + String(t % 60).padStart(2, '0');
+    el.classList.toggle('low', left < 60000);
+  }, 250);
 
   var tmrHandle = null;
   function tick() {
@@ -1049,6 +1271,56 @@
 
     var again = app.querySelector('[data-again]');
     if (again) again.onclick = function () { startPractice(S.run.chapterId); };
+
+    // ---- live round
+    var lj = app.querySelector('[data-livejoin]');
+    if (lj) lj.onclick = function () {
+      var code = (app.querySelector('#roomcode').value || '').trim().toUpperCase();
+      if (!/^[A-Z]{4}$/.test(code)) { LIVE.feedback = 'That needs to be four letters.'; render(); return; }
+      LIVE.code = code; LIVE.misses = {};
+      liveEvent('join').then(function (res) {
+        if (!res.ok) { LIVE.feedback = res.j.error === 'room not found' ? 'No round with that code yet.' : 'Could not join.'; render(); return; }
+        LIVE.room = res.j.room; LIVE.feedback = '';
+        if (LIVE.room.state === 'running') serveNextLive();
+        startLivePolling(); render();
+      });
+    };
+
+    app.querySelectorAll('[data-pick]').forEach(function (b) {
+      if (S.screen !== 'live') return;
+      b.onclick = function () {
+        if (!LIVE.view || LIVE.view.answered) return;
+        LIVE.view.picked = parseInt(b.getAttribute('data-pick'), 10);
+        liveAnswer();
+      };
+    });
+    if (S.screen === 'live' && LIVE.view) {
+      app.querySelectorAll('[data-toggle]').forEach(function (b) {
+        b.onclick = function () {
+          if (LIVE.view.answered) return;
+          var i = parseInt(b.getAttribute('data-toggle'), 10);
+          LIVE.view.sel[i] = !LIVE.view.sel[i]; render();
+        };
+      });
+      app.querySelectorAll('[data-match]').forEach(function (sel) {
+        sel.onchange = function () { LIVE.view.sel[parseInt(sel.getAttribute('data-match'), 10)] = sel.value; };
+      });
+      var lf = app.querySelector('#fillin');
+      if (lf) {
+        lf.oninput = function () { LIVE.view.value = lf.value; };
+        lf.onkeydown = function (e) { if (e.key === 'Enter') liveAnswer(); };
+        if (!LIVE.view.answered) lf.focus();
+      }
+    }
+    var ls = app.querySelector('[data-livesubmit]'); if (ls) ls.onclick = liveAnswer;
+    var ln = app.querySelector('[data-livenext]'); if (ln) ln.onclick = liveNext;
+    var lx = app.querySelector('[data-liveexit]') || app.querySelector('[data-liveexit2]');
+    if (lx) lx.onclick = function () {
+      if (LIVE.poll) { clearInterval(LIVE.poll); LIVE.poll = null; }
+      LIVE.room = null; LIVE.view = null; LIVE.feedback = '';
+      S.screen = 'map'; render();
+      if (syncEnabled()) syncProgress({ type: 'live' });
+    };
 
     var reset = app.querySelector('[data-reset]');
     if (reset) reset.onclick = function () {

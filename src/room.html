@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Buy Time — Projector</title>
+<link rel="stylesheet" href="styles.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⏱️</text></svg>">
+<style>
+  #app { max-width: 1100px; padding-bottom: 24px; }
+  .clock {
+    font-variant-numeric: tabular-nums; font-weight: 800;
+    font-size: clamp(4rem, 18vw, 11rem); line-height: 1;
+    letter-spacing: -0.03em; text-align: center; margin: 4px 0;
+  }
+  .clock.warn { color: var(--warn); }
+  .clock.crit { color: var(--bad); animation: pulse 1s ease-in-out infinite; }
+  @keyframes pulse { 0%,100% { opacity: 1 } 50% { opacity: 0.55 } }
+
+  .bigbar { height: 22px; border-radius: 999px; background: var(--card-hi); overflow: hidden; }
+  .bigbar > i { display: block; height: 100%; background: var(--good); transition: width 0.4s ease; }
+
+  .roomcode {
+    font-size: clamp(2.6rem, 9vw, 5rem); font-weight: 800; letter-spacing: 0.22em;
+    text-align: center; color: var(--accent); font-family: ui-monospace, monospace;
+  }
+  .poolchip {
+    display: inline-block; font-size: 1.05rem; font-weight: 650;
+    padding: 9px 15px; border-radius: 999px; margin: 0 7px 7px 0;
+    background: var(--bad-soft); color: var(--bad); border: 1px solid var(--bad);
+  }
+  .player {
+    display: inline-flex; align-items: center; gap: 7px;
+    background: var(--card-hi); border: 1px solid var(--line);
+    border-radius: 999px; padding: 6px 13px; margin: 0 6px 6px 0; font-size: 0.95rem;
+  }
+  .player b { color: var(--good); }
+  .headline { font-size: clamp(1.1rem, 3vw, 1.5rem); font-weight: 650; text-align: center; }
+  .allhands {
+    background: var(--warn); color: #241a00; border-radius: var(--r);
+    padding: 18px; text-align: center; font-weight: 800;
+    font-size: clamp(1.2rem, 4vw, 2rem); margin-bottom: 12px;
+  }
+  .ctl { display: flex; flex-wrap: wrap; gap: 8px; }
+  .ctl .btn { flex: 1 1 130px; }
+</style>
+</head>
+<body>
+<div id="app"><div class="card" style="margin-top:32px">Loading…</div></div>
+<script>
+(function () {
+  'use strict';
+  var app = document.getElementById('app');
+  var S = { classCode: '', pin: '', room: null, err: '', poll: null };
+
+  function esc(s) {
+    return String(s == null ? '' : s)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  }
+  function mmss(ms) {
+    if (ms < 0) ms = 0;
+    var t = Math.ceil(ms / 1000);
+    return Math.floor(t / 60) + ':' + String(t % 60).padStart(2, '0');
+  }
+
+  function api(method, path, body) {
+    var opt = { method: method, headers: { 'Content-Type': 'application/json' } };
+    if (body) opt.body = JSON.stringify(body);
+    return fetch(path, opt).then(function (r) {
+      return r.json().then(function (j) { return { ok: r.ok, j: j }; });
+    });
+  }
+
+  function control(action, extra) {
+    var body = Object.assign({ classCode: S.classCode, pin: S.pin, action: action }, extra || {});
+    if (S.room) body.code = S.room.code;
+    return api('POST', '/api/room', body).then(function (res) {
+      if (!res.ok) { S.err = res.j.error || 'failed'; render(); return; }
+      S.err = ''; S.room = res.j.room; render(); startPolling();
+    });
+  }
+
+  function poll() {
+    if (!S.room) return;
+    api('GET', '/api/room?classCode=' + encodeURIComponent(S.classCode) + '&code=' + S.room.code)
+      .then(function (res) { if (res.ok) { S.room = res.j.room; render(); } });
+  }
+  function startPolling() {
+    if (S.poll) clearInterval(S.poll);
+    S.poll = setInterval(poll, 2000);
+    if (!window._tick) window._tick = setInterval(paintClock, 250);
+  }
+
+  // The clock is derived from the absolute deadline, so it never drifts and a
+  // dropped poll does not freeze it.
+  function paintClock() {
+    var el = document.getElementById('clock');
+    if (!el || !S.room || !S.room.endsAt) return;
+    var left = new Date(S.room.endsAt).getTime() - Date.now();
+    el.textContent = mmss(left);
+    el.className = 'clock' + (left < 30000 ? ' crit' : left < 60000 ? ' warn' : '');
+  }
+
+  function viewSetup() {
+    return '<div style="height:28px"></div>' +
+      '<div class="center"><div style="font-size:2.6rem">&#9201;&#65039;</div>' +
+      '<h1>Buy Time</h1><p class="dim">Projector view</p></div>' +
+      (S.err ? '<div class="banner warn">' + esc(S.err) + '</div>' : '') +
+      '<div class="card pad-lg">' +
+      '<div class="field"><label for="cc">Class code</label>' +
+      '<input id="cc" placeholder="e.g. RT101" autocapitalize="characters" value="' + esc(S.classCode) + '"></div>' +
+      '<div class="field"><label for="pin">Instructor PIN</label>' +
+      '<input id="pin" type="password" autocomplete="off" value="' + esc(S.pin) + '"></div>' +
+      '<div class="btn-row">' +
+      '<div class="field" style="flex:1;margin:0"><label for="target">Questions to clear</label>' +
+      '<input id="target" type="number" value="40" min="5" max="200"></div>' +
+      '<div class="field" style="flex:1;margin:0"><label for="mins">Starting clock (min)</label>' +
+      '<input id="mins" type="number" value="5" min="1" max="60"></div>' +
+      '</div><div class="spacer-sm"></div>' +
+      '<button class="btn" id="create">Create a room</button>' +
+      '<p class="faint" style="margin-top:12px">Students open the game and tap <b>Join live round</b>. ' +
+      'Nothing anyone gets wrong ever costs the class time.</p>' +
+      '</div>';
+  }
+
+  function viewLobby() {
+    var r = S.room;
+    return '<div class="topbar"><strong>Buy Time</strong><div class="spacer"></div>' +
+      '<span class="pill">' + r.players.length + ' joined</span></div>' +
+      '<div class="card pad-lg center"><p class="dim" style="margin:0 0 4px">Room code</p>' +
+      '<div class="roomcode">' + esc(r.code) + '</div>' +
+      '<p class="dim">Clear <b>' + r.target + '</b> questions before the clock runs out. ' +
+      'Starting clock <b>' + (r.startMinutes || 5) + ':00</b>.</p></div>' +
+      '<div class="card"><h3>In the room</h3>' +
+      (r.players.length
+        ? '<div>' + r.players.map(function (p) { return '<span class="player">' + esc(p.name) + '</span>'; }).join('') + '</div>'
+        : '<p class="dim">Nobody yet. Read the room code out.</p>') +
+      '</div>' +
+      '<button class="btn" id="start"' + (r.players.length ? '' : ' disabled') + '>Start the clock</button>';
+  }
+
+  function viewRunning() {
+    var r = S.room;
+    var pct = Math.min(100, 100 * (r.cleared || 0) / (r.target || 1));
+    var h = '';
+
+    if (r.allHands && !r.allHands.solved) {
+      h += '<div class="allhands">&#9995; ALL HANDS &mdash; ' + esc(r.allHands.topic) +
+        '<div style="font-size:0.9rem;font-weight:600;margin-top:4px">on every phone now &middot; any correct answer buys 60 seconds</div></div>';
+    }
+
+    h += '<div class="clock" id="clock">--:--</div>' +
+      '<div class="headline" style="margin-bottom:10px">' +
+      '<b>' + (r.cleared || 0) + '</b> of <b>' + r.target + '</b> cleared</div>' +
+      '<div class="bigbar" style="margin-bottom:16px"><i style="width:' + pct.toFixed(1) + '%"></i></div>';
+
+    h += '<div class="card"><h3 style="margin-bottom:4px">Open pool &mdash; nobody could clear these</h3>' +
+      '<p class="faint" style="margin:0 0 10px">Anyone can take one. Worth double. No names, ever.</p>' +
+      (r.pool.length
+        ? '<div>' + r.pool.map(function (p) { return '<span class="poolchip">' + esc(p.topic) + '</span>'; }).join('') + '</div>'
+        : '<p class="dim" style="margin:0">Empty. The room is clearing everything.</p>') +
+      '</div>';
+
+    h += '<div class="card"><h3>Contributing</h3><div>' +
+      r.players.map(function (p) {
+        return '<span class="player">' + esc(p.name) + ' <b>' + (p.cleared || 0) + '</b></span>';
+      }).join('') +
+      '</div><p class="faint" style="margin:10px 0 0">Nobody may clear more than ' +
+      r.perStudentCap + ' &mdash; it takes most of the room to finish.</p></div>';
+
+    h += '<div class="ctl">' +
+      '<button class="btn ghost sm" id="allhands"' + (r.pool.length ? '' : ' disabled') + '>&#9995; All hands</button>' +
+      '<button class="btn ghost sm" id="extend">+60 seconds</button>' +
+      '<button class="btn ghost sm" id="end">End round</button>' +
+      '</div>';
+    return h;
+  }
+
+  function viewOver() {
+    var r = S.room;
+    var won = r.state === 'won' || (r.cleared || 0) >= r.target;
+    return '<div class="center" style="margin-top:18px">' +
+      '<div style="font-size:3.2rem">' + (won ? '&#127881;' : '&#9203;') + '</div>' +
+      '<h1>' + (won ? 'The room made it' : 'Clock ran out') + '</h1>' +
+      '<p class="dim">' + (r.cleared || 0) + ' of ' + r.target + ' cleared</p></div>' +
+      '<div class="card"><h3>Teach these next</h3>' +
+      '<p class="faint" style="margin:0 0 10px">What nobody in the room could clear. This is the lesson plan.</p>' +
+      (r.pool.length
+        ? '<div>' + r.pool.map(function (p) { return '<span class="poolchip">' + esc(p.topic) + '</span>'; }).join('') + '</div>'
+        : '<p class="dim" style="margin:0">Nothing survived the pool. They know it.</p>') +
+      '</div>' +
+      '<div class="card"><h3>Everyone contributed</h3><div>' +
+      r.players.map(function (p) { return '<span class="player">' + esc(p.name) + ' <b>' + (p.cleared || 0) + '</b></span>'; }).join('') +
+      '</div></div>' +
+      '<button class="btn" id="again">New round</button>';
+  }
+
+  function render() {
+    var r = S.room;
+    if (!r) app.innerHTML = viewSetup();
+    else if (r.state === 'lobby') app.innerHTML = viewLobby();
+    else if (r.state === 'running') app.innerHTML = viewRunning();
+    else app.innerHTML = viewOver();
+    bind();
+    paintClock();
+  }
+
+  function bind() {
+    var c = document.getElementById('create');
+    if (c) c.onclick = function () {
+      S.classCode = document.getElementById('cc').value.trim();
+      S.pin = document.getElementById('pin').value;
+      if (!S.classCode || !S.pin) { S.err = 'Class code and PIN are both needed.'; render(); return; }
+      try { sessionStorage.setItem('rt-room', JSON.stringify({ c: S.classCode, p: S.pin })); } catch (e) {}
+      control('create', {
+        target: Number(document.getElementById('target').value) || 40,
+        minutes: Number(document.getElementById('mins').value) || 5
+      });
+    };
+    var s = document.getElementById('start'); if (s) s.onclick = function () { control('start'); };
+    var a = document.getElementById('allhands'); if (a) a.onclick = function () { control('allhands'); };
+    var e = document.getElementById('extend'); if (e) e.onclick = function () { control('extend', { seconds: 60 }); };
+    var x = document.getElementById('end'); if (x) x.onclick = function () { control('end'); };
+    var g = document.getElementById('again'); if (g) g.onclick = function () { S.room = null; render(); };
+  }
+
+  try {
+    var prev = JSON.parse(sessionStorage.getItem('rt-room') || 'null');
+    if (prev) { S.classCode = prev.c || ''; S.pin = prev.p || ''; }
+  } catch (e) {}
+
+  // If the clock runs out, close the round so the projector stops counting down.
+  setInterval(function () {
+    if (S.room && S.room.state === 'running' && S.room.endsAt &&
+        new Date(S.room.endsAt).getTime() < Date.now() - 1500) {
+      control('end');
+    }
+  }, 2000);
+
+  render();
+})();
+</script>
+</body>
+</html>
