@@ -239,6 +239,53 @@ async function handleClass(url, env) {
   return json({ code, count: students.length, students, classWeak });
 }
 
+// Students type their own names, so duplicates and typos are inevitable.
+// Removing a row is instructor-only and permanent.
+async function handleDelete(url, env) {
+  const code = slug(url.searchParams.get('code'));
+  const id = slug(url.searchParams.get('id'));
+  const pin = url.searchParams.get('pin') || '';
+  if (!code) return json({ error: 'code is required' }, 400);
+  if (!env.INSTRUCTOR_PIN || pin !== env.INSTRUCTOR_PIN) {
+    return json({ error: 'invalid pin' }, 401);
+  }
+
+  const token = await getAccessToken(env);
+  const base = `projects/${env.FIREBASE_PROJECT_ID}/databases/(default)/documents/classes/${code}/students`;
+
+  // a single student
+  if (id) {
+    const res = await fetch(`${FS}/${base}/${id}`, {
+      method: 'DELETE',
+      headers: { Authorization: `Bearer ${token}` }
+    });
+    if (!res.ok) {
+      const text = await res.text();
+      return json({ error: 'delete failed', detail: text.slice(0, 300) }, 502);
+    }
+    return json({ ok: true, deleted: [id] });
+  }
+
+  // the whole class
+  const list = await fetch(`${FS}/${base}?pageSize=300`, {
+    headers: { Authorization: `Bearer ${token}` }
+  });
+  if (!list.ok) {
+    const text = await list.text();
+    return json({ error: 'list failed', detail: text.slice(0, 300) }, 502);
+  }
+  const docs = (await list.json()).documents || [];
+  const deleted = [];
+  for (const d of docs) {
+    const res = await fetch(`${FS}/${d.name}`, {
+      method: 'DELETE',
+      headers: { Authorization: `Bearer ${token}` }
+    });
+    if (res.ok) deleted.push(d.name.split('/').pop());
+  }
+  return json({ ok: true, deleted, count: deleted.length });
+}
+
 // ---------------------------------------------------------------- entry
 
 export default {
@@ -254,6 +301,10 @@ export default {
         if (url.pathname === '/api/class' && request.method === 'GET') {
           if (!backendReady(env)) return json(NOT_CONFIGURED, 503);
           return await handleClass(url, env);
+        }
+        if (url.pathname === '/api/class' && request.method === 'DELETE') {
+          if (!backendReady(env)) return json(NOT_CONFIGURED, 503);
+          return await handleDelete(url, env);
         }
         if (url.pathname === '/api/health') {
           return json({

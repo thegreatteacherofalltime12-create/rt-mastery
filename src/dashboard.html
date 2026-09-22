@@ -110,7 +110,7 @@
 
     h += '<div class="card"><h3>Students</h3><div class="tablewrap"><table>' +
       '<tr><th>Name</th><th class="num">Mastered</th><th>Progress</th><th class="num">Rounds</th>' +
-      '<th class="num">Best exam</th><th>Weakest topics</th><th class="num">Last seen</th></tr>' +
+      '<th class="num">Best exam</th><th>Weakest topics</th><th class="num">Last seen</th><th></th></tr>' +
       s.map(function (x) {
         var pct = x.totalQuestions ? Math.round(100 * (x.mastered || 0) / x.totalQuestions) : 0;
         var stale = !x.updatedAt || (Date.now() - new Date(x.updatedAt)) > 7 * 86400000;
@@ -123,13 +123,41 @@
           '<td class="num">' + (best ? best + '%' : '—') + '</td>' +
           '<td class="faint">' + esc((x.weakTopics || []).slice(0, 3).join(', ') || '—') + '</td>' +
           '<td class="num faint">' + ago(x.updatedAt) + '</td>' +
+          '<td class="num"><button class="iconbtn" data-del="' + esc(slug(x.name)) + '" ' +
+          'data-name="' + esc(x.name) + '" title="Remove this student">&times;</button></td>' +
           '</tr>';
       }).join('') + '</table></div>' +
-      '<p class="faint" style="margin-top:10px">Greyed rows have not played in over a week.</p></div>';
+      '<p class="faint" style="margin-top:10px">Greyed rows have not played in over a week. ' +
+      'Use &times; to remove a duplicate or mistyped name &mdash; this cannot be undone.</p></div>';
 
     h += '<button class="btn ghost sm" id="refresh">Refresh</button>';
     out.innerHTML = h;
     document.getElementById('refresh').onclick = load;
+
+    Array.prototype.forEach.call(document.querySelectorAll('[data-del]'), function (b) {
+      b.onclick = function () {
+        var who = b.getAttribute('data-name');
+        if (!confirm('Permanently remove ' + who + ' and all their progress?\n\nThis cannot be undone.')) return;
+        b.disabled = true;
+        var code = document.getElementById('code').value.trim();
+        var pin = document.getElementById('pin').value;
+        fetch('/api/class?code=' + encodeURIComponent(code) +
+              '&id=' + encodeURIComponent(b.getAttribute('data-del')) +
+              '&pin=' + encodeURIComponent(pin), { method: 'DELETE' })
+          .then(function (r) { return r.json(); })
+          .then(function (j) {
+            if (j.ok) load();
+            else { alert('Could not remove: ' + (j.error || 'unknown error')); b.disabled = false; }
+          })
+          .catch(function () { alert('Network error.'); b.disabled = false; });
+      };
+    });
+  }
+
+  // must match the Worker's id derivation
+  function slug(s) {
+    return String(s || '').toLowerCase().trim()
+      .replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60);
   }
 
   document.getElementById('go').onclick = load;
