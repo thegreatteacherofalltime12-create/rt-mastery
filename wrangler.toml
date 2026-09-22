@@ -1,6 +1,7 @@
 name = "rt-mastery"
 main = "worker/index.js"
 compatibility_date = "2025-01-01"
+account_id = "a53a20f319a812a127b31063a0d327c4"
 
 # Static game files are served straight from dist/ at no request cost.
 [assets]

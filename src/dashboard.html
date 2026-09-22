@@ -65,7 +65,9 @@
       .then(function (res) {
         if (!res.ok) {
           out.innerHTML = '<div class="card"><h3>Could not load</h3><p class="dim">' +
-            esc(res.j.error || 'Unknown error') + '</p></div>';
+            esc(res.j.error || 'Unknown error') + '</p>' +
+            (res.j.detail ? '<p class="faint">' + esc(res.j.detail) + '</p>' : '') +
+            '</div>';
           return;
         }
         render(res.j);

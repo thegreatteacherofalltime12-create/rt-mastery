@@ -143,6 +143,17 @@ function slug(s) {
 
 // ---------------------------------------------------------------- handlers
 
+// The game is fully playable before Firestore is wired up, so say so plainly
+// instead of throwing when the service-account secrets are missing.
+function backendReady(env) {
+  return !!(env.FIREBASE_PROJECT_ID && env.FIREBASE_CLIENT_EMAIL && env.FIREBASE_PRIVATE_KEY);
+}
+
+const NOT_CONFIGURED = {
+  error: 'backend not configured',
+  detail: 'Firestore credentials are not set on this Worker. The game still works; progress is saved on each device only. See DEPLOY.md.'
+};
+
 async function handleProgress(request, env) {
   let body;
   try {
@@ -237,13 +248,20 @@ export default {
     if (url.pathname.startsWith('/api/')) {
       try {
         if (url.pathname === '/api/progress' && request.method === 'POST') {
+          if (!backendReady(env)) return json(NOT_CONFIGURED, 503);
           return await handleProgress(request, env);
         }
         if (url.pathname === '/api/class' && request.method === 'GET') {
+          if (!backendReady(env)) return json(NOT_CONFIGURED, 503);
           return await handleClass(url, env);
         }
         if (url.pathname === '/api/health') {
-          return json({ ok: true, project: env.FIREBASE_PROJECT_ID || null });
+          return json({
+            ok: true,
+            project: env.FIREBASE_PROJECT_ID || null,
+            firestore: backendReady(env) ? 'configured' : 'not configured',
+            dashboard: env.INSTRUCTOR_PIN ? 'pin set' : 'pin not set'
+          });
         }
         return json({ error: 'not found' }, 404);
       } catch (err) {
