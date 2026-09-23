@@ -150,6 +150,14 @@
     return { done: done, total: total, pct: total ? done / total : 0 };
   }
 
+  // Chapter plaques read as inscriptions: II, III, IV...
+  function roman(n) {
+    var map = [[10,'X'],[9,'IX'],[5,'V'],[4,'IV'],[1,'I']];
+    var out = '', v = Number(n) || 0;
+    for (var i = 0; i < map.length; i++) while (v >= map[i][0]) { out += map[i][1]; v -= map[i][0]; }
+    return out || String(n);
+  }
+
   function shuffle(a) {
     var arr = a.slice();
     for (var i = arr.length - 1; i > 0; i--) {
@@ -507,8 +515,8 @@
       var maxed = lv >= MAX_LEVEL && m.pct >= UNLOCK_AT;
       var info = LEVELS[lv];
       h += '<button class="zone ' + (maxed ? 'done' : '') + '" data-chapter="' + c.id + '">' +
-        '<span class="orb" style="background:var(--' + c.color + ')22;color:var(--' + c.color + ')">' +
-        'Ch' + c.number + '</span>' +
+        '<span class="orb">' +
+        roman(c.number) + '</span>' +
         '<span class="grow">' +
         '<div class="ztitle">' + esc(c.title) + (maxed ? ' &#10003;' : '') + '</div>' +
         '<div class="zmeta">' +

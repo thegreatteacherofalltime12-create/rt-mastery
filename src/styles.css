@@ -1,47 +1,59 @@
 /* RT Mastery — phone-first stylesheet */
 
+/* Quest — deep navy and gold. A themed shell over a body font that stays
+   readable, because this app is 236 questions of dense clinical text. */
 :root {
-  --bg: #0f1117;
-  --bg-soft: #171a23;
-  --card: #1c202b;
-  --card-hi: #242938;
-  --line: #2c3243;
-  --text: #e9ecf4;
-  --text-dim: #9aa3b8;
-  --text-faint: #6b7489;
+  --bg: #0d1622;
+  --bg-soft: #0f1a24;
+  --card: #1c2b3a;
+  --card-hi: #24364a;
+  --line: #3c5568;
+  --text: #e8dfc8;
+  --text-dim: #8fa3ba;
+  --text-faint: #6d8299;
 
-  --accent: #6d8cff;
-  --accent-soft: #6d8cff22;
-  --good: #34d399;
-  --good-soft: #34d39922;
-  --bad: #f87171;
-  --bad-soft: #f8717122;
-  --warn: #fbbf24;
+  --accent: #c9a227;
+  --accent-lit: #e8c766;
+  --accent-soft: #c9a2271f;
+  --good: #5ec77f;
+  --good-soft: #5ec77f1f;
+  --bad: #e06a6a;
+  --bad-soft: #e06a6a1f;
+  --warn: #e8c766;
 
   --violet: #a78bfa;
-  --emerald: #34d399;
-  --sky: #38bdf8;
-  --amber: #fbbf24;
-  --rose: #fb7185;
+  --emerald: #5ec77f;
+  --sky: #5aa9e6;
+  --amber: #e8c766;
+  --rose: #e08a8a;
 
-  --r: 14px;
-  --r-sm: 10px;
+  --display: Cinzel, 'Iowan Old Style', 'Palatino Linotype', Georgia, serif;
+
+  --r: 8px;
+  --r-sm: 6px;
   --gutter: 16px;
-  --shadow: 0 6px 24px rgba(0, 0, 0, 0.35);
+  --shadow: 0 6px 24px rgba(0, 0, 0, 0.45);
 }
 
+/* Daylight variant — aged parchment rather than a flat white sheet. */
 :root[data-theme="light"] {
-  --bg: #f6f7fb;
-  --bg-soft: #ffffff;
-  --card: #ffffff;
-  --card-hi: #f1f3f9;
-  --line: #e2e6f0;
-  --text: #141824;
-  --text-dim: #5b6379;
-  --text-faint: #8b93a7;
-  --accent: #3b5bdb;
-  --accent-soft: #3b5bdb18;
-  --shadow: 0 6px 20px rgba(20, 24, 36, 0.08);
+  --bg: #f2ead8;
+  --bg-soft: #fbf6ea;
+  --card: #fbf6ea;
+  --card-hi: #efe5cd;
+  --line: #d6c7a4;
+  --text: #2a2317;
+  --text-dim: #6b5c42;
+  --text-faint: #8d7d61;
+  --accent: #8a6d12;
+  --accent-lit: #a8851c;
+  --accent-soft: #8a6d1218;
+  --good: #2f7a47;
+  --good-soft: #2f7a4718;
+  --bad: #a83b3b;
+  --bad-soft: #a83b3b18;
+  --warn: #8a6d12;
+  --shadow: 0 6px 20px rgba(60, 48, 24, 0.12);
 }
 
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
@@ -57,7 +69,20 @@ html, body {
   overscroll-behavior-y: none;
 }
 
-body { min-height: 100dvh; }
+body {
+  min-height: 100dvh;
+  background-image: radial-gradient(ellipse 120% 60% at 50% 0%, #1e3a52 0%, transparent 62%);
+  background-repeat: no-repeat;
+  background-attachment: fixed;
+}
+:root[data-theme="light"] body {
+  background-image: radial-gradient(ellipse 120% 60% at 50% 0%, #fffaf0 0%, transparent 62%);
+}
+
+/* Display face for titles and anything that should read as an inscription. */
+h1, h2, .qhead .faint, .roomcode { font-family: var(--display); letter-spacing: 0.02em; }
+h1 { color: var(--accent-lit); }
+:root[data-theme="light"] h1 { color: var(--accent); }
 
 #app {
   max-width: 720px;
@@ -103,7 +128,8 @@ p { margin: 0 0 12px; }
 
 /* ---------- cards ---------- */
 .card {
-  background: var(--card); border: 1px solid var(--line);
+  background: linear-gradient(var(--card-hi), var(--card));
+  border: 1px solid var(--line);
   border-radius: var(--r); padding: 16px; margin-bottom: 12px;
 }
 .card.pad-lg { padding: 20px; }
@@ -111,17 +137,20 @@ p { margin: 0 0 12px; }
 /* ---------- buttons ---------- */
 .btn {
   display: block; width: 100%;
-  border: 0; border-radius: 12px;
-  background: var(--accent); color: #fff;
-  font-size: 1rem; font-weight: 650; font-family: inherit;
+  border: 0; border-radius: var(--r-sm);
+  background: linear-gradient(var(--accent-lit), var(--accent));
+  color: #20180a; box-shadow: 0 3px 0 #6d5512;
+  font-size: 1rem; font-weight: 800; font-family: inherit;
+  letter-spacing: 0.02em;
   padding: 15px 18px; cursor: pointer;
   transition: transform 0.06s ease, filter 0.15s ease;
 }
+:root[data-theme="light"] .btn { color: #fdf8ec; box-shadow: 0 3px 0 #5e4a0d; }
 .btn:hover { filter: brightness(1.08); }
-.btn:active { transform: scale(0.985); }
+.btn:active { transform: translateY(2px); box-shadow: 0 1px 0 #6d5512; }
 .btn[disabled] { opacity: 0.45; cursor: not-allowed; }
-.btn.ghost { background: var(--card); color: var(--text); border: 1px solid var(--line); }
-.btn.ghost:hover { background: var(--card-hi); }
+.btn.ghost { background: var(--card); color: var(--text); border: 1px solid var(--line); box-shadow: none; }
+.btn.ghost:hover { background: var(--card-hi); border-color: var(--accent); }
 .btn.sm { padding: 11px 14px; font-size: 0.92rem; }
 .btn-row { display: flex; gap: 10px; }
 .btn-row .btn { flex: 1; }
@@ -147,20 +176,24 @@ p { margin: 0 0 12px; }
 /* ---------- zone list ---------- */
 .zone {
   display: flex; align-items: center; gap: 14px;
-  background: var(--card); border: 1px solid var(--line);
+  background: linear-gradient(var(--card-hi), var(--card));
+  border: 1px solid var(--line); border-left: 4px solid var(--accent);
   border-radius: var(--r); padding: 15px; margin-bottom: 10px;
   cursor: pointer; text-align: left; width: 100%;
   font-family: inherit; color: var(--text);
-  transition: border-color 0.15s ease, background 0.15s ease;
+  transition: border-color 0.15s ease, filter 0.15s ease;
 }
-.zone:hover { border-color: var(--accent); background: var(--card-hi); }
-.zone.done { border-color: var(--good); }
+.zone:hover { filter: brightness(1.12); }
+.zone.done { border-left-color: var(--good); }
 
 .zone .orb {
-  flex: 0 0 auto; width: 46px; height: 46px; border-radius: 13px;
-  display: grid; place-items: center; font-size: 1.25rem; font-weight: 700;
-  background: var(--accent-soft); color: var(--accent);
+  flex: 0 0 auto; width: 44px; height: 44px; border-radius: var(--r-sm);
+  display: grid; place-items: center; font-size: 1.05rem; font-weight: 700;
+  font-family: var(--display);
+  background: var(--bg-soft); border: 1px solid var(--accent); color: var(--accent-lit);
 }
+.zone.done .orb { border-color: var(--good); color: var(--good); }
+:root[data-theme="light"] .zone .orb { color: var(--accent); }
 .zone .grow { flex: 1; min-width: 0; }
 .zone .ztitle { font-weight: 650; font-size: 0.98rem; margin-bottom: 3px; }
 .zone .zmeta { font-size: 0.8rem; color: var(--text-dim); margin-bottom: 7px; }
@@ -171,28 +204,31 @@ p { margin: 0 0 12px; }
 .qhead .bar { flex: 1; }
 
 .tag {
-  display: inline-block; font-size: 0.72rem; font-weight: 700;
-  letter-spacing: 0.04em; text-transform: uppercase;
-  padding: 4px 9px; border-radius: 6px;
-  background: var(--accent-soft); color: var(--accent); margin-bottom: 10px;
+  display: inline-block; font-family: var(--display);
+  font-size: 0.68rem; font-weight: 700;
+  letter-spacing: 0.12em; text-transform: uppercase;
+  padding: 3px 9px; border-radius: 4px;
+  background: transparent; border: 1px solid var(--accent);
+  color: var(--accent-lit); margin-bottom: 11px;
 }
+:root[data-theme="light"] .tag { color: var(--accent); }
 
 .qprompt { font-size: 1.12rem; font-weight: 600; line-height: 1.45; margin-bottom: 16px; }
 
 .choice {
   display: flex; align-items: flex-start; gap: 12px;
   width: 100%; text-align: left; font-family: inherit; font-size: 0.97rem;
-  background: var(--card); color: var(--text);
-  border: 1.5px solid var(--line); border-radius: 12px;
+  background: var(--bg-soft); color: var(--text);
+  border: 1px solid var(--line); border-radius: var(--r-sm);
   padding: 14px; margin-bottom: 9px; cursor: pointer;
   transition: border-color 0.12s ease, background 0.12s ease;
 }
 .choice:hover:not(:disabled) { border-color: var(--accent); }
 .choice:disabled { cursor: default; }
 .choice .key {
-  flex: 0 0 auto; width: 24px; height: 24px; border-radius: 7px;
+  flex: 0 0 auto; width: 24px; height: 24px; border-radius: 5px; font-family: var(--display);
   display: grid; place-items: center; font-size: 0.78rem; font-weight: 700;
-  background: var(--card-hi); color: var(--text-dim);
+  background: var(--bg-soft); color: var(--accent-lit);
 }
 .choice.picked { border-color: var(--accent); background: var(--accent-soft); }
 .choice.picked .key { background: var(--accent); color: #fff; }
@@ -260,8 +296,8 @@ p { margin: 0 0 12px; }
 .stat .l { font-size: 0.72rem; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.04em; margin-top: 3px; }
 
 /* boss */
-.boss { background: linear-gradient(140deg, #3b1d52, #1e1b3a); border: 1px solid #5b3a80; }
-:root[data-theme="light"] .boss { background: linear-gradient(140deg, #ede9fe, #e0e7ff); border-color: #c4b5fd; }
+.boss { background: linear-gradient(140deg, #24354a, #16212e); border: 1px solid var(--accent); }
+:root[data-theme="light"] .boss { background: linear-gradient(140deg, #f7efd9, #efe3c4); border-color: var(--accent); }
 
 .timer { font-variant-numeric: tabular-nums; font-weight: 800; font-size: 1.05rem; }
 .timer.low { color: var(--bad); }
@@ -308,16 +344,16 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
 
 /* ---------- difficulty levels ---------- */
 .lvchip {
-  display: inline-block; font-size: 0.7rem; font-weight: 700;
+  display: inline-block; font-family: var(--display); font-size: 0.66rem; font-weight: 700;
   padding: 2px 7px; border-radius: 5px; margin-right: 5px;
   letter-spacing: 0.02em;
 }
-.lvchip.lv1 { background: #6d8cff22; color: var(--accent); }
-.lvchip.lv2 { background: #fbbf2422; color: var(--warn); }
-.lvchip.lv3 { background: #f8717122; color: var(--bad); }
+.lvchip.lv1 { background: var(--accent-soft); color: var(--accent-lit); border: 1px solid #5c4a1c; }
+.lvchip.lv2 { background: #5aa9e61f; color: var(--sky); border: 1px solid #2c4a63; }
+.lvchip.lv3 { background: var(--bad-soft); color: var(--bad); border: 1px solid #6b3030; }
 
 .card.levelup {
-  background: linear-gradient(140deg, #2a2050, #1d2740);
+  background: linear-gradient(140deg, #2b3b28, #1b2a33);
   border-color: var(--accent);
 }
 :root[data-theme="light"] .card.levelup {
@@ -326,3 +362,21 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
 }
 
 .qprompt { white-space: pre-line; }
+
+/* Native selects ignore the card styling unless targeted directly, and an
+   unstyled white dropdown is the one thing that breaks the whole look. */
+select {
+  font-family: inherit; font-size: 0.95rem;
+  background: var(--bg-soft); color: var(--text);
+  border: 1px solid var(--line); border-radius: var(--r-sm);
+  padding: 11px 12px; appearance: none;
+  background-image: linear-gradient(45deg, transparent 50%, var(--accent) 50%),
+                    linear-gradient(135deg, var(--accent) 50%, transparent 50%);
+  background-position: calc(100% - 17px) calc(50% + 1px), calc(100% - 12px) calc(50% + 1px);
+  background-size: 5px 5px, 5px 5px;
+  background-repeat: no-repeat;
+  padding-right: 32px;
+}
+select:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+select option { background: var(--bg-soft); color: var(--text); }
+.matchrow select { flex: 1; min-width: 0; }
