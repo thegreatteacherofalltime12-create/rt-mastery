@@ -306,15 +306,26 @@ const POOL_MULTIPLIER = 2;                // clearing someone else's miss is wor
 const ALL_HANDS_BONUS = 60;
 const MAX_SHARE = 0.6;                    // no one student may clear more than this share
 
+// Firestore is billed per document read and per document write, so the whole
+// game here is collapsing many callers into few operations.
+//
+// Ten phones and a projector polling a live room is the only high-volume path
+// in this app. They all want the SAME document, so one cached read serves every
+// poll inside the window. The clock is derived client-side from an absolute
+// deadline, so a couple of seconds of staleness changes nothing on screen.
+const ROOM_CACHE_MS = 2500;
+
 let roomCache = { key: null, at: 0, value: null };
 
 function roomPath(env, classCode, roomCode) {
   return `projects/${env.FIREBASE_PROJECT_ID}/databases/(default)/documents/classes/${classCode}/rooms/${roomCode}`;
 }
 
+function cacheKey(classCode, roomCode) { return classCode + '/' + roomCode; }
+
 async function readRoom(env, classCode, roomCode, maxAgeMs) {
-  const key = classCode + '/' + roomCode;
-  const age = maxAgeMs === undefined ? 900 : maxAgeMs;
+  const key = cacheKey(classCode, roomCode);
+  const age = maxAgeMs === undefined ? ROOM_CACHE_MS : maxAgeMs;
   if (roomCache.key === key && Date.now() - roomCache.at < age) return roomCache.value;
 
   const token = await getAccessToken(env);
@@ -328,6 +339,73 @@ async function readRoom(env, classCode, roomCode, maxAgeMs) {
   return doc;
 }
 
+// A Firestore field path segment must be backticked unless it is a plain
+// identifier. Student ids are slugs and usually contain dashes.
+function fieldPath(parts) {
+  return parts.map((p) => (/^[A-Za-z_][A-Za-z_0-9]*$/.test(p) ? p : '`' + String(p).replace(/`/g, '') + '`')).join('.');
+}
+
+/**
+ * One Firestore write that both sets fields and applies atomic increments.
+ *
+ * Increments are what make a clear cost a single operation instead of a
+ * read-modify-write, and they are also the only correct way to do this: two
+ * students clearing in the same second would otherwise overwrite each other's
+ * time. That is why the deadline is stored as `endsAtMs`, an integer we can
+ * add to, rather than a timestamp string we would have to read first.
+ */
+async function commitRoom(env, classCode, roomCode, { set, inc, local }) {
+  const token = await getAccessToken(env);
+  const doc = roomPath(env, classCode, roomCode);
+
+  // A dotted key like "players.avery-diaz" targets a nested field. The REST
+  // `fields` map is a tree, so it has to be nested to match, while updateMask
+  // takes the dotted path - that pairing is what makes this a MERGE of one
+  // nested field rather than a clobber of the whole map.
+  const fields = {};
+  const mask = [];
+  for (const k of Object.keys(set || {})) {
+    const v = set[k];
+    if (v === undefined) continue;
+    const parts = k.split('.');
+    let node = fields;
+    for (let i = 0; i < parts.length - 1; i++) {
+      const seg = parts[i];
+      if (!node[seg]) node[seg] = { mapValue: { fields: {} } };
+      node = node[seg].mapValue.fields;
+    }
+    node[parts[parts.length - 1]] = toFsValue(v);
+    mask.push(fieldPath(parts));
+  }
+
+  const transforms = Object.keys(inc || {})
+    .filter((p) => inc[p])
+    .map((p) => ({ fieldPath: p, increment: { integerValue: String(inc[p]) } }));
+
+  const write = { update: { name: doc, fields }, updateMask: { fieldPaths: mask } };
+  if (transforms.length) write.updateTransforms = transforms;
+
+  const res = await fetch(`${FS.replace(/\/v1$/, '/v1')}/projects/${env.FIREBASE_PROJECT_ID}/databases/(default)/documents:commit`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ writes: [write] })
+  });
+  if (!res.ok) {
+    const t = await res.text();
+    throw new Error('room commit failed: ' + res.status + ' ' + t.slice(0, 200));
+  }
+
+  // Keep the cache in step so the next poll does not pay for a read just to
+  // observe a change we already know about.
+  if (local && roomCache.key === cacheKey(classCode, roomCode) && roomCache.value) {
+    roomCache = { key: roomCache.key, at: Date.now(), value: local };
+  } else {
+    roomCache = { key: null, at: 0, value: null };
+  }
+}
+
+// Replacing a whole room (create, or a structural change) is rare enough to
+// stay a plain PATCH.
 async function writeRoom(env, classCode, roomCode, room) {
   const token = await getAccessToken(env);
   const fields = {};
@@ -338,7 +416,7 @@ async function writeRoom(env, classCode, roomCode, room) {
     body: JSON.stringify({ fields })
   });
   if (!res.ok) throw new Error('room write failed: ' + res.status);
-  roomCache = { key: classCode + '/' + roomCode, at: Date.now(), value: room };
+  roomCache = { key: cacheKey(classCode, roomCode), at: Date.now(), value: room };
   return room;
 }
 
@@ -359,8 +437,9 @@ function publicRoom(room) {
     code: room.code,
     state: room.state,
     target: room.target,
+    startMinutes: room.startMinutes || 5,
     cleared: room.cleared || 0,
-    endsAt: room.endsAt || null,
+    endsAtMs: room.endsAtMs || null,
     pool: (room.pool || []).map((p) => ({ qid: p.qid, topic: p.topic, chapter: p.chapter })),
     allHands: room.allHands || null,
     players: Object.keys(players).map((id) => ({
@@ -388,7 +467,7 @@ async function handleRoomControl(request, env) {
     const room = {
       code: code, classCode: classCode, state: 'lobby',
       target: target, startMinutes: minutes, cleared: 0,
-      endsAt: null, pool: [], players: {}, allHands: null,
+      endsAtMs: 0, pool: [], players: {}, allHands: null,
       createdAt: new Date().toISOString()
     };
     await writeRoom(env, classCode, code, room);
@@ -402,7 +481,7 @@ async function handleRoomControl(request, env) {
 
   if (action === 'start') {
     room.state = 'running';
-    room.endsAt = new Date(Date.now() + room.startMinutes * 60000).toISOString();
+    room.endsAtMs = Date.now() + room.startMinutes * 60000;
     room.startedAt = new Date().toISOString();
   } else if (action === 'allhands') {
     const pool = room.pool || [];
@@ -414,8 +493,7 @@ async function handleRoomControl(request, env) {
     };
   } else if (action === 'extend') {
     const add = Math.min(300, Math.max(10, Number(body.seconds) || 60));
-    const base = room.endsAt ? new Date(room.endsAt).getTime() : Date.now();
-    room.endsAt = new Date(Math.max(base, Date.now()) + add * 1000).toISOString();
+    room.endsAtMs = Math.max(room.endsAtMs || 0, Date.now()) + add * 1000;
   } else if (action === 'end') {
     room.state = 'ended';
   } else {
@@ -450,18 +528,27 @@ async function handleRoomEvent(request, env) {
     return json({ error: 'classCode, code and name are required' }, 400);
   }
 
-  const room = await readRoom(env, classCode, roomCode, 0);
+  // The cached room is good enough to validate against: it is at most a couple
+  // of seconds stale, and every mutation below is an atomic increment, so a
+  // stale read cannot corrupt a counter.
+  const room = await readRoom(env, classCode, roomCode);
   if (!room) return json({ error: 'room not found' }, 404);
 
   room.players = room.players || {};
   room.pool = room.pool || [];
-  if (!room.players[studentId]) room.players[studentId] = { name: name, cleared: 0 };
-  room.players[studentId].lastSeen = new Date().toISOString();
+  const known = !!room.players[studentId];
+  if (!known) room.players[studentId] = { name: name, cleared: 0 };
 
   const type = String(body.type || '');
 
   if (type === 'join') {
-    await writeRoom(env, classCode, roomCode, room);
+    // Only pay for a write when this student is actually new to the room.
+    if (!known) {
+      await commitRoom(env, classCode, roomCode, {
+        set: { ['players.' + studentId]: { name: name, cleared: 0 } },
+        local: room
+      });
+    }
     return json({ ok: true, room: publicRoom(room) });
   }
 
@@ -474,11 +561,13 @@ async function handleRoomEvent(request, env) {
   if (type === 'miss') {
     // A miss costs the room nothing. It drops into the pool anonymously - the
     // projector shows topic tags only, never who put it there.
-    if (qid && !room.pool.some((p) => p.qid === qid)) {
-      room.pool.push({ qid: qid, topic: topic, chapter: chapter });
-      if (room.pool.length > 40) room.pool.shift();
+    // Already in the pool? Then there is nothing to write at all.
+    if (!qid || room.pool.some((p) => p.qid === qid)) {
+      return json({ ok: true, seconds: 0, room: publicRoom(room) });
     }
-    await writeRoom(env, classCode, roomCode, room);
+    room.pool.push({ qid: qid, topic: topic, chapter: chapter });
+    if (room.pool.length > 40) room.pool.shift();
+    await commitRoom(env, classCode, roomCode, { set: { pool: room.pool }, local: room });
     return json({ ok: true, seconds: 0, room: publicRoom(room) });
   }
 
@@ -508,18 +597,29 @@ async function handleRoomEvent(request, env) {
     }
 
     if (!counted && !fromPool && !answeringAllHands) seconds = 0;
+    const scores = counted || fromPool || answeringAllHands;
 
-    if (seconds > 0) {
-      const base = room.endsAt ? new Date(room.endsAt).getTime() : Date.now();
-      room.endsAt = new Date(Math.max(base, Date.now()) + seconds * 1000).toISOString();
+    // ONE write, all of it atomic. Counters and the deadline are increments, so
+    // simultaneous clears add up instead of overwriting each other.
+    const set = {};
+    const inc = {};
+    if (seconds > 0) inc.endsAtMs = seconds * 1000;
+    if (scores) {
+      inc.cleared = 1;
+      inc[fieldPath(['players', studentId, 'cleared'])] = 1;
     }
-    if (counted || fromPool || answeringAllHands) {
-      room.cleared = (room.cleared || 0) + 1;
-      room.players[studentId].cleared = mine + 1;
-    }
-    if ((room.cleared || 0) >= (room.target || 40)) room.state = 'won';
+    if (fromPool || answeringAllHands) set.pool = room.pool;
+    if (answeringAllHands) set.allHands = room.allHands;
 
-    await writeRoom(env, classCode, roomCode, room);
+    // Optimistically mirror the change so the next poll is served from cache.
+    room.cleared = (room.cleared || 0) + (scores ? 1 : 0);
+    if (scores) room.players[studentId].cleared = mine + 1;
+    if (seconds > 0) room.endsAtMs = (room.endsAtMs || Date.now()) + seconds * 1000;
+    if (room.cleared >= (room.target || 40)) { room.state = 'won'; set.state = 'won'; }
+
+    if (Object.keys(set).length || Object.keys(inc).length) {
+      await commitRoom(env, classCode, roomCode, { set, inc, local: room });
+    }
     return json({
       ok: true, seconds: seconds, counted: counted,
       atCap: !counted, fromPool: fromPool, allHands: answeringAllHands,

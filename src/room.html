@@ -89,7 +89,7 @@
   }
   function startPolling() {
     if (S.poll) clearInterval(S.poll);
-    S.poll = setInterval(poll, 2000);
+    S.poll = setInterval(poll, 4000);
     if (!window._tick) window._tick = setInterval(paintClock, 250);
   }
 
@@ -97,8 +97,8 @@
   // dropped poll does not freeze it.
   function paintClock() {
     var el = document.getElementById('clock');
-    if (!el || !S.room || !S.room.endsAt) return;
-    var left = new Date(S.room.endsAt).getTime() - Date.now();
+    if (!el || !S.room || !S.room.endsAtMs) return;
+    var left = S.room.endsAtMs - Date.now();
     el.textContent = mmss(left);
     el.className = 'clock' + (left < 30000 ? ' crit' : left < 60000 ? ' warn' : '');
   }
@@ -233,8 +233,8 @@
 
   // If the clock runs out, close the round so the projector stops counting down.
   setInterval(function () {
-    if (S.room && S.room.state === 'running' && S.room.endsAt &&
-        new Date(S.room.endsAt).getTime() < Date.now() - 1500) {
+    if (S.room && S.room.state === 'running' && S.room.endsAtMs &&
+        S.room.endsAtMs < Date.now() - 1500) {
       control('end');
     }
   }, 2000);

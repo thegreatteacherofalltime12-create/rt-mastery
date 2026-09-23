@@ -945,7 +945,7 @@
           }
           render();
         });
-    }, 2500);
+    }, 4000);
   }
 
   function viewLive() {
@@ -953,7 +953,7 @@
     var h = '<div class="topbar">' +
       '<button class="iconbtn" data-liveexit>&larr;</button>' +
       '<strong style="font-size:0.95rem">Buy Time</strong><div class="spacer"></div>' +
-      (r && r.endsAt ? '<span class="pill timer" id="livetimer">--:--</span>' : '') +
+      (r && r.endsAtMs ? '<span class="pill timer" id="livetimer">--:--</span>' : '') +
       '</div>';
 
     if (!r) {
@@ -1058,8 +1058,8 @@
   // poll never freezes it and phones never drift apart.
   setInterval(function () {
     var el = document.getElementById('livetimer');
-    if (!el || !LIVE.room || !LIVE.room.endsAt) return;
-    var left = new Date(LIVE.room.endsAt).getTime() - Date.now();
+    if (!el || !LIVE.room || !LIVE.room.endsAtMs) return;
+    var left = LIVE.room.endsAtMs - Date.now();
     if (left < 0) left = 0;
     var t = Math.ceil(left / 1000);
     el.textContent = Math.floor(t / 60) + ':' + String(t % 60).padStart(2, '0');
