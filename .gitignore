@@ -15,3 +15,6 @@ Thumbs.db
 # The sample chapter ships so the project builds and is playable on clone.
 content/ch*.json
 !content/ch-example.json
+
+# The generated test bank is her question bank in another shape.
+testbank/
