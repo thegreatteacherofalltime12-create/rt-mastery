@@ -146,6 +146,11 @@ export function makeFirestore() {
     if (url.endsWith('/documents:commit')) {
       const body = JSON.parse(opt.body);
       for (const w of body.writes || []) {
+        if (!w.update) throw new Error('unsupported write shape: ' + Object.keys(w).join(','));
+        // a precondition the real service enforces, so the fake must too
+        if (w.currentDocument && w.currentDocument.exists === true && !docs.has(w.update.name)) {
+          return new Response(JSON.stringify({ error: { status: 'FAILED_PRECONDITION' } }), { status: 400 });
+        }
         applyCommit(w.update.name,
                     w.update.fields,
                     w.updateMask && w.updateMask.fieldPaths,
@@ -156,12 +161,23 @@ export function makeFirestore() {
     }
 
     const path = url.replace(/^https:\/\/firestore\.googleapis\.com\/v1\//, '').split('?')[0];
+    const query = url.indexOf('?') > -1 ? url.slice(url.indexOf('?') + 1) : '';
 
     if (method === 'PATCH') {
       const body = JSON.parse(opt.body);
-      applyCommit(path, body.fields, null, null);
-      return new Response(JSON.stringify({ name: path, fields: body.fields }),
-        { status: 200, headers: { 'Content-Type': 'application/json' } });
+      // updateMask travels in the QUERY STRING on a PATCH, not in the body.
+      // Ignoring it would silently turn every masked write back into a whole-
+      // document replace - the exact bug these tests exist to catch.
+      const masked = query.split('&')
+        .filter((kv) => kv.indexOf('updateMask.fieldPaths=') === 0)
+        .map((kv) => decodeURIComponent(kv.slice('updateMask.fieldPaths='.length)));
+      applyCommit(path, body.fields, masked.length ? masked : null, null);
+      // a real PATCH answers with the MERGED document, which is how the Worker
+      // learns a granted total without paying for a read
+      return new Response(JSON.stringify({
+        name: path,
+        fields: toFs(docs.get(path) || {}).mapValue.fields
+      }), { status: 200, headers: { 'Content-Type': 'application/json' } });
     }
 
     if (method === 'DELETE') {

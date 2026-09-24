@@ -6,7 +6,8 @@ class of exactly ten, and the honest flaw in each — so that a format is not
 rebuilt from scratch, and so that the shared plumbing is designed against real
 candidates rather than imagined ones.
 
-Only **Buy Time** is built. Everything below it is a design, not a promise.
+**Buy Time** and **The Supply Closet** are built. Everything else is a design, not a
+promise.
 
 ---
 
@@ -93,13 +94,13 @@ layer, the level ladder, Leitner scheduling, and six question types.
 | Format | Build | Firestore | Straggler-safe by |
 |---|---|---|---|
 | The Standing Order | small | 1 doc, 60s cache | only the holder is ever named |
-| The Supply Closet | medium | zero extra ops | purchases are private |
+| ~~The Supply Closet~~ | **built** | zero extra ops | purchases are private |
 | Field Day | medium | zero extra ops | the racers are chapters, not students |
 | Three Certainties | medium | ~10 writes/round | calibration is personal, not ranked |
 | Beat the Forecast | medium | reuses the room doc | private per-student handicap |
 | The Walk-Through | large | same as Buy Time | cooperative, no ranking |
 
-### The Supply Closet — the token shop
+### The Supply Closet — the token shop  *(built)*
 
 Budget is earned at **one token per question attempted, not per question
 correct**, so purchasing power tracks effort and the student who is behind is by
@@ -109,7 +110,7 @@ student document the dashboard already touches.
 Six tokens, not eighteen — this is one semester, not thousands of rounds:
 
 - **Adapted Equipment** — serve this item one level down
-- **Chart Review** — reveal the hint on a Level 3 write-in
+- **Chart Review** — on a write-in, the first letter and the character count
 - **Consult** — drop two wrong options
 - **Documentation** — a miss does not drop your Leitner box by two
 - **Co-Treat** — credit your next live clear to a classmate
@@ -123,6 +124,20 @@ This design found a real gap in what is already shipped: `servedLevel()` only
 steps a question down when it physically cannot be written in, so a student
 auto-promoted to Level 3 has **no way back down** if they are drowning. Adapted
 Equipment gives them one, privately, with nobody told.
+
+**Two things changed between design and build.** Chart Review was going to reveal
+the hint on a write-in, but the hint is already free on every write-in — selling it
+back would have made the hardest level harder for the students least able to afford
+the token. It gives the first letter and the character count instead, which is
+strictly additive. And Co-Treat does not ask who to credit: the server picks whoever
+has cleared least, so nobody has to choose a classmate in front of the class and the
+help always lands where it is needed most.
+
+Earning is one token per question **attempted**. The skill tree is the second XP
+sink: six nodes across Assessment, Implementation and Evaluation, buying permanent
+competence rather than more consumables. Teacher grants are one atomic increment on
+the student document, claimed by difference so a grant is never applied twice and
+never lost to an offline phone.
 
 ### Field Day — lane racing, safest design here
 

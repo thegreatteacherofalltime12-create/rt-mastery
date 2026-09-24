@@ -382,3 +382,36 @@ select {
 }
 select:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
 select option { background: var(--bg-soft); color: var(--text); }
+
+/* ---------------------------------------------------------- supply closet */
+/* The shelf sits under the question, so the decision to spend is made in the
+   moment of difficulty rather than in a menu beforehand. */
+.shelf {
+  margin: -4px 0 12px; padding: 10px 12px;
+  background: var(--card-hi); border: 1px solid var(--line); border-radius: 12px;
+}
+.shelf-head {
+  display: flex; align-items: center; justify-content: space-between;
+  font-size: 0.78rem; margin-bottom: 8px;
+}
+.shelf-row { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip-btn {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 7px 11px; font: inherit; font-size: 0.8rem; font-weight: 650;
+  color: var(--text); background: var(--bg-soft);
+  border: 1px solid var(--line); border-radius: 999px; cursor: pointer;
+}
+.chip-btn:hover:not(.off) { border-color: var(--accent); color: var(--accent); }
+.chip-btn b { color: var(--accent); }
+.chip-btn.off { opacity: 0.4; cursor: not-allowed; }
+
+.shopitem {
+  display: flex; align-items: flex-start; gap: 12px;
+  padding: 11px 0; border-top: 1px solid var(--line);
+}
+.shopitem:first-of-type { border-top: 0; }
+.shopitem.off { opacity: 0.45; }
+.shopitem.owned .shopicon { color: var(--good); }
+.shopicon { font-size: 1.3rem; line-height: 1.4; width: 28px; text-align: center; flex: none; }
+.shopitem .faint { font-size: 0.82rem; margin: 2px 0 0; }
+.pill.sm { font-size: 0.72rem; padding: 2px 7px; }

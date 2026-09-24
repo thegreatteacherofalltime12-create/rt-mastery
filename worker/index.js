@@ -181,6 +181,7 @@ async function handleProgress(request, env) {
     totalQuestions: Number(body.totalQuestions) || 0,
     avgLevel: Number(body.avgLevel) || 1,
     weakTopics: Array.isArray(body.weakTopics) ? body.weakTopics.slice(0, 10).map(String) : [],
+    tokens: Number(body.tokens) || 0,
     bestExam: Number(body.bestExam) || 0,
     examRuns: Array.isArray(body.examRuns) ? body.examRuns.slice(-3) : [],
     updatedAt: new Date().toISOString()
@@ -191,7 +192,12 @@ async function handleProgress(request, env) {
 
   const token = await getAccessToken(env);
   const path = `projects/${env.FIREBASE_PROJECT_ID}/databases/(default)/documents/classes/${classCode}/students/${studentId}`;
-  const res = await fetch(`${FS}/${path}`, {
+
+  // The mask matters. Without it this PATCH replaces the WHOLE document, so a
+  // student finishing a round would erase anything the instructor had written
+  // on them - grants included. The student owns these fields; nothing else.
+  const mask = Object.keys(doc).map((k) => `updateMask.fieldPaths=${encodeURIComponent(k)}`).join('&');
+  const res = await fetch(`${FS}/${path}?${mask}`, {
     method: 'PATCH',
     headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({ fields })
@@ -202,7 +208,16 @@ async function handleProgress(request, env) {
     return json({ error: 'firestore write failed', detail: text.slice(0, 300) }, 502);
   }
   if (classCache.key === classCode) classCache = { key: null, at: 0, value: null };
-  return json({ ok: true, studentId });
+
+  // A PATCH returns the merged document, so the running total of tokens the
+  // instructor has granted comes back for free. No extra read, ever.
+  let granted = 0;
+  try {
+    const back = docToObject(await res.json());
+    granted = Number(back.grantTotal) || 0;
+  } catch { /* the write landed; the echo is a bonus */ }
+
+  return json({ ok: true, studentId, grantTotal: granted });
 }
 
 // A roster LIST is billed one read PER STUDENT, and Refresh is a button a human
@@ -251,6 +266,54 @@ async function handleClass(url, env) {
   const payload = { code, count: students.length, students, classWeak };
   classCache = { key: code, at: Date.now(), value: payload };
   return json(payload);
+}
+
+/**
+ * Teacher-issued tokens.
+ *
+ * One atomic increment on the student document the dashboard already writes:
+ * no read, one write. The client claims the difference between grantTotal and
+ * what it has already taken, so a grant is never applied twice and never lost
+ * if the phone is offline when it is issued.
+ */
+async function handleGrant(request, env) {
+  let body;
+  try { body = await request.json(); } catch { return json({ error: 'invalid json' }, 400); }
+
+  const code = slug(body.code);
+  const pin = body.pin || '';
+  if (!code) return json({ error: 'code is required' }, 400);
+  if (!env.INSTRUCTOR_PIN || pin !== env.INSTRUCTOR_PIN) return json({ error: 'invalid pin' }, 401);
+
+  const tokens = Math.min(50, Math.max(1, Math.round(Number(body.tokens) || 0)));
+  const ids = (Array.isArray(body.ids) ? body.ids : [body.id]).map(slug).filter(Boolean);
+  if (!ids.length) return json({ error: 'at least one student is required' }, 400);
+
+  const token = await getAccessToken(env);
+  const writes = ids.map((id) => ({
+    update: {
+      name: `projects/${env.FIREBASE_PROJECT_ID}/databases/(default)/documents/classes/${code}/students/${id}`,
+      fields: {}
+    },
+    updateMask: { fieldPaths: [] },
+    updateTransforms: [{ fieldPath: 'grantTotal', increment: { integerValue: String(tokens) } }],
+    // a grant to somebody who has never played would otherwise create a
+    // half-student the dashboard cannot explain
+    currentDocument: { exists: true }
+  }));
+
+  const res = await fetch(`${FS}/projects/${env.FIREBASE_PROJECT_ID}/databases/(default)/documents:commit`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ writes })
+  });
+  if (!res.ok) {
+    const t = await res.text();
+    return json({ error: 'grant failed', detail: t.slice(0, 300) }, 502);
+  }
+
+  if (classCache.key === code) classCache = { key: null, at: 0, value: null };
+  return json({ ok: true, granted: tokens, students: ids.length });
 }
 
 // Students type their own names, so duplicates and typos are inevitable.
@@ -617,6 +680,19 @@ const GAMES = {
         if (!counted && !fromPool && !answeringAllHands) seconds = 0;
         const scores = counted || fromPool || answeringAllHands;
 
+        // Co-Treat. The recipient is chosen HERE, not by the client, and it is
+        // always whoever has cleared least - so the only token the room can see
+        // is one that helps whoever is furthest behind, and nobody has to pick a
+        // classmate in front of the class.
+        let creditTo = ctx.studentId;
+        if (ctx.body.coTreat && scores) {
+          const others = Object.keys(room.players).filter((id) => id !== ctx.studentId);
+          if (others.length) {
+            creditTo = others.sort((a, b) =>
+              (room.players[a].cleared || 0) - (room.players[b].cleared || 0))[0];
+          }
+        }
+
         // ONE write, all of it atomic. Counters and the deadline are
         // increments, so simultaneous clears add up instead of overwriting.
         const set = {};
@@ -624,14 +700,16 @@ const GAMES = {
         if (seconds > 0) inc['gs.endsAtMs'] = seconds * 1000;
         if (scores) {
           inc['gs.cleared'] = 1;
-          inc[fieldPath(['players', ctx.studentId, 'cleared'])] = 1;
+          inc[fieldPath(['players', creditTo, 'cleared'])] = 1;
         }
         if (fromPool || answeringAllHands) set['gs.pool'] = room.gs.pool;
         if (answeringAllHands) set['gs.allHands'] = room.gs.allHands;
 
         // Optimistically mirror the change so the next poll is served from cache.
         room.gs.cleared = (room.gs.cleared || 0) + (scores ? 1 : 0);
-        if (scores) room.players[ctx.studentId].cleared = mine + 1;
+        if (scores) {
+          room.players[creditTo].cleared = (room.players[creditTo].cleared || 0) + 1;
+        }
         if (seconds > 0) room.gs.endsAtMs = (room.gs.endsAtMs || Date.now()) + seconds * 1000;
 
         // Victory is a game fact, not a room state. The room still ends with
@@ -646,7 +724,8 @@ const GAMES = {
 
         return {
           seconds: seconds, counted: counted, atCap: !counted,
-          fromPool: fromPool, allHands: answeringAllHands
+          fromPool: fromPool, allHands: answeringAllHands,
+          creditedTo: creditTo === ctx.studentId ? null : (room.players[creditTo] || {}).name || null
         };
       }
     }
@@ -918,6 +997,10 @@ export default {
         if (url.pathname === '/api/room' && request.method === 'POST') {
           if (!backendReady(env)) return json(NOT_CONFIGURED, 503);
           return await handleRoomControl(request, env);
+        }
+        if (url.pathname === '/api/grant' && request.method === 'POST') {
+          if (!backendReady(env)) return json(NOT_CONFIGURED, 503);
+          return await handleGrant(request, env);
         }
         if (url.pathname === '/api/room/event' && request.method === 'POST') {
           if (!backendReady(env)) return json(NOT_CONFIGURED, 503);

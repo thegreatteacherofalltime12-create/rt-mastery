@@ -22,6 +22,144 @@
     2: { name: 'Discriminate', xp: 15, blurb: 'Six options' },
     3: { name: 'Recall', xp: 25, blurb: 'No options — type it' }
   };
+  // ------------------------------------------------------------ Supply Closet
+  //
+  // Tokens are earned for ATTEMPTING a question, never for getting it right.
+  // That is deliberate: purchasing power then tracks effort, so the student who
+  // is behind is by construction the one attempting most and the one with the
+  // most help available. A shop that paid for correctness would hand the most
+  // help to whoever needed it least.
+  //
+  // Nothing spent here is ever shown to the class. The single exception is
+  // Co-Treat, whose whole effect is to credit somebody else - so the only
+  // publicly visible token in the game is an act of help.
+
+  var TOKENS = {
+    adapted: {
+      name: 'Adapted Equipment', icon: '♿', cost: 4,
+      blurb: 'Serve this question one level down.',
+      // The one shipped gap this closes: promotion is automatic at 80%, but
+      // servedLevel() only steps a question DOWN when it physically cannot be
+      // written in. A student promoted to Recall and drowning had no way back.
+      hint: 'Use it when a level is too much today. Nobody is told.'
+    },
+    chart: {
+      name: 'Chart Review', icon: '📋', cost: 3,
+      blurb: 'On a write-in, show the first letter and how long the answer is.',
+      hint: 'The hint is always free. This is the detail underneath it.'
+    },
+    consult: {
+      name: 'Consult', icon: '💬', cost: 3,
+      blurb: 'Drop two wrong options.',
+      hint: 'Turns four options into two.'
+    },
+    doc: {
+      name: 'Documentation', icon: '🖊️', cost: 5,
+      blurb: 'If you miss this one, it will not drop two boxes.',
+      hint: 'Spend it before you answer, on the ones you are unsure of.'
+    },
+    cotreat: {
+      name: 'Co-Treat', icon: '🤝', cost: 4,
+      blurb: 'Credit your next live clear to a classmate.',
+      hint: 'Live rounds only. The room sees their name, not yours.'
+    },
+    inservice: {
+      name: 'Inservice', icon: '🎓', cost: 8,
+      blurb: 'Your next finished session pays one and a half times XP.',
+      hint: 'Worth most before a long session at a high level.'
+    }
+  };
+
+  // XP is the second currency. It buys permanent competence rather than
+  // consumables, so a student who has put the hours in keeps the benefit.
+  var SKILLS = {
+    assess1: { name: 'Chart Access', branch: 'Assessment', xp: 150,
+               blurb: 'Chart Review costs 1 less.' },
+    assess2: { name: 'Clinical Eye', branch: 'Assessment', xp: 400, needs: 'assess1',
+               blurb: 'Consult drops three options instead of two.' },
+    imp1:    { name: 'Equipment Room', branch: 'Implementation', xp: 150,
+               blurb: 'Adapted Equipment costs 1 less.' },
+    imp2:    { name: 'Co-Treatment', branch: 'Implementation', xp: 400, needs: 'imp1',
+               blurb: 'Unlocks Co-Treat in live rounds.' },
+    eval1:   { name: 'Charting Habit', branch: 'Evaluation', xp: 150,
+               blurb: 'Every fifth question attempted pays a second token.' },
+    eval2:   { name: 'Supervision', branch: 'Evaluation', xp: 400, needs: 'eval1',
+               blurb: 'Documentation also protects your streak.' }
+  };
+
+  function hasSkill(id) { return !!(S.stats.skills && S.stats.skills[id]); }
+
+  function tokenCost(id) {
+    var c = TOKENS[id].cost;
+    if (id === 'chart' && hasSkill('assess1')) c -= 1;
+    if (id === 'adapted' && hasSkill('imp1')) c -= 1;
+    return Math.max(1, c);
+  }
+
+  function tokenLocked(id) {
+    return id === 'cotreat' && !hasSkill('imp2');
+  }
+
+  function skillAvailable(id) {
+    var sk = SKILLS[id];
+    if (hasSkill(id)) return false;
+    return !sk.needs || hasSkill(sk.needs);
+  }
+
+  // Attempting is what pays. Correctness is already paid in XP.
+  function earnTokens() {
+    S.stats.attempts = (S.stats.attempts || 0) + 1;
+    var n = 1;
+    if (hasSkill('eval1') && S.stats.attempts % 5 === 0) n = 2;
+    S.stats.tokens = (S.stats.tokens || 0) + n;
+  }
+
+  // Which tokens apply to the question on screen right now. A token that could
+  // do nothing here is not offered, so nobody wastes one finding out.
+  function viewLevel(v) {
+    return (v && (v._level || (v.q && v.q._level))) || 1;
+  }
+
+  function offersFor(v, live) {
+    if (!v || v.answered) return [];
+    var out = [];
+    var isChoice = v.type === 'mc' || v.type === 'scenario' || v.type === 'multi';
+    if (isChoice && !v._dropped) out.push('consult');
+    if (v.type === 'fill' && !v._chart) out.push('chart');
+    if (!live && !v._protected) out.push('doc');
+    if (!live && viewLevel(v) > 1 && !v._adapted) out.push('adapted');
+    if (live && !tokenLocked('cotreat')) out.push('cotreat');
+    return out.filter(function (id) { return !tokenLocked(id); });
+  }
+
+  // Drop wrong options. Three with Clinical Eye, two without - never so many
+  // that the answer is left alone on screen.
+  function applyConsult(v) {
+    var want = hasSkill('assess2') ? 3 : 2;
+    var wrong = [];
+    v.opts.forEach(function (o, pos) {
+      var right = v.type === 'multi' ? !!v.answerSet[o.i] : pos === v.answerPos;
+      if (!right) wrong.push(pos);
+    });
+    // Never leave the answer standing alone: at least one wrong option stays,
+    // so this narrows the choice without making it for you.
+    want = Math.min(want, Math.max(0, wrong.length - 1));
+    v._dropped = want > 0 ? shuffle(wrong).slice(0, want) : [];
+  }
+
+  function applyChart(v) {
+    var best = (v.q.answer || []).slice().sort(function (a, b) { return a.length - b.length; })[0] || '';
+    v._chart = best ? { first: best.charAt(0).toUpperCase(), len: best.replace(/s+/g, ' ').length } : null;
+  }
+
+  function spend(id) {
+    var c = tokenCost(id);
+    if (tokenLocked(id) || (S.stats.tokens || 0) < c) return false;
+    S.stats.tokens -= c;
+    save();
+    return true;
+  }
+
   var API = '/api';
 
   // ---------------------------------------------------------------- state
@@ -31,7 +169,7 @@
     profile: { name: '', classCode: '' },
     progress: {},               // recKey -> { box, seen, right, wrong, last }
     levels: {},                 // chapterId -> current level (1..3)
-    stats: { xp: 0, bestStreak: 0, sessions: 0, examRuns: [] },
+    stats: { xp: 0, bestStreak: 0, sessions: 0, examRuns: [], tokens: 0, skills: {}, boost: 0, grantClaimed: 0, attempts: 0 },
     theme: 'dark',
 
     // transient run state
@@ -46,7 +184,7 @@
         S.profile = d.profile || S.profile;
         S.progress = d.progress || {};
         S.levels = d.levels || {};
-        S.stats = Object.assign({ xp: 0, bestStreak: 0, sessions: 0, examRuns: [] }, d.stats || {});
+        S.stats = Object.assign({ xp: 0, bestStreak: 0, sessions: 0, examRuns: [], tokens: 0, skills: {}, boost: 0, grantClaimed: 0, attempts: 0 }, d.stats || {});
         S.theme = d.theme || 'dark';
       }
     } catch (e) { /* corrupt or blocked storage — start fresh */ }
@@ -356,17 +494,20 @@
     return false;
   }
 
-  function applyResult(qid, ok, practice, level) {
+  function applyResult(qid, ok, practice, level, protectedBox) {
     var lv = level || 1;
     var r = rec(qid, lv);
     r.seen++; r.last = Date.now();
+    earnTokens();
     if (ok) {
       r.right++;
       if (practice) r.box = Math.min(MASTERY_BOX, r.box + 1);
       S.stats.xp += (LEVELS[lv] || LEVELS[1]).xp;   // harder levels pay more
     } else {
       r.wrong++;
-      if (practice) r.box = Math.max(0, r.box - 2);  // miss it, and it comes back soon
+      // Documentation softens the fall: the question still comes back, it just
+      // does not fall all the way to the bottom of the pile.
+      if (practice) r.box = Math.max(0, r.box - (protectedBox ? 1 : 2));
     }
   }
 
@@ -379,7 +520,7 @@
   // document write that bought nothing. Nor is an identical body ever sent
   // twice - backing out of the live screen without playing used to cost a write.
   var lastSync = '';
-  function syncProgress(extra) {
+  function syncProgress(extra, force) {
     if (!syncEnabled()) return Promise.resolve({ skipped: true });
     var o = overall();
     var levelSum = CHAPTERS.reduce(function (n, c) { return n + levelOf(c.id); }, 0);
@@ -395,6 +536,7 @@
       totalQuestions: o.total,
       avgLevel: CHAPTERS.length ? Math.round((levelSum / CHAPTERS.length) * 10) / 10 : 1,
       weakTopics: weak,
+      tokens: S.stats.tokens || 0,
       bestExam: runs.reduce(function (m, r) { return Math.max(m, r.pct || 0); }, 0),
       examRuns: runs.slice(-3)
     };
@@ -403,7 +545,11 @@
     // two otherwise identical bodies, so it belongs in the signature.
     var json = JSON.stringify(body);
     var sig = json + '|' + ((extra && extra.type) || '');
-    if (sig === lastSync) return Promise.resolve({ skipped: true });
+    // A forced sync is the only way a student learns about tokens the
+    // instructor granted: the reply carries the running total, and without a
+    // request there is no reply. Opening the closet is deliberate and rare, so
+    // it is worth one write; everything else still dedupes.
+    if (!force && sig === lastSync) return Promise.resolve({ skipped: true });
 
     return fetch(API + '/progress', {
       method: 'POST',
@@ -413,17 +559,41 @@
       if (!r.ok) return { error: r.status };
       lastSync = sig;          // only a write that landed may suppress the next one
       return r.json();
+    }).then(function (j) {
+      if (j && j.ok) claimGrants(j.grantTotal);
+      return j;
     }).catch(function () { return { error: 'offline' }; });
+  }
+
+  // Tokens the instructor has handed out. The server keeps a running total and
+  // this takes the difference, so a grant is never applied twice and never lost
+  // because a phone happened to be offline when she issued it.
+  function claimGrants(total) {
+    var got = Number(total) || 0;
+    var claimed = S.stats.grantClaimed || 0;
+    if (got <= claimed) return 0;
+    var gained = got - claimed;
+    S.stats.tokens = (S.stats.tokens || 0) + gained;
+    S.stats.grantClaimed = got;
+    S.stats.grantJustGot = gained;
+    save();
+    return gained;
   }
 
   function weakestTopics(n) {
     var map = {};
     allQuestions().forEach(function (q) {
-      var r = S.progress[q.id];
-      if (!r || !r.seen) return;
-      if (!map[q.topic]) map[q.topic] = { right: 0, seen: 0 };
-      map[q.topic].right += r.right;
-      map[q.topic].seen += r.seen;
+      // Every question keeps a SEPARATE record per level, because recKey
+      // namespaces anything above level 1. Reading the bare id therefore saw
+      // level 1 only - so the better a student got, the less of their
+      // struggling reached the instructor, which is backwards. Sum all three.
+      for (var lv = 1; lv <= MAX_LEVEL; lv++) {
+        var r = S.progress[recKey(q.id, lv)];
+        if (!r || !r.seen) continue;
+        if (!map[q.topic]) map[q.topic] = { right: 0, seen: 0 };
+        map[q.topic].right += r.right;
+        map[q.topic].seen += r.seen;
+      }
     });
     return Object.keys(map).map(function (t) {
       return { topic: t, pct: Math.round(100 * map[t].right / map[t].seen), seen: map[t].seen };
@@ -445,6 +615,7 @@
       case 'results': html = viewResults(); break;
       case 'exams': html = viewExams(); break;
       case 'stats': html = viewStats(); break;
+      case 'closet': html = viewCloset(); break;
       case 'live': html = viewLive(); break;
       default: html = viewMap();
     }
@@ -459,6 +630,7 @@
       '<strong style="font-size:1rem">' + esc(title) + '</strong>' +
       '<div class="spacer"></div>' +
       '<span class="pill">&#9889; <b>' + S.stats.xp + '</b></span>' +
+      '<span class="pill">&#129689; <b>' + (S.stats.tokens || 0) + '</b></span>' +
       '<button class="iconbtn" data-theme-toggle>' + (S.theme === 'dark' ? '&#9788;' : '&#9789;') + '</button>' +
       '</div>';
   }
@@ -491,8 +663,15 @@
   // ---- map
 
   function viewMap() {
+    var granted = S.stats.grantJustGot;
+    if (granted) S.stats.grantJustGot = 0;
     var o = overall();
     var h = topbar('Your map', null);
+
+    if (granted) {
+      h += '<div class="banner">🪙 Your instructor gave you <b>' + granted +
+        '</b> token' + (granted === 1 ? '' : 's') + '. They are in the supply closet.</div>';
+    }
 
     h += '<div class="card">' +
       '<div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px">' +
@@ -547,6 +726,7 @@
     }
 
     h += '<div class="btn-row" style="margin-top:10px">' +
+      '<button class="btn ghost sm" data-go="closet">&#129689; Supply closet</button>' +
       '<button class="btn ghost sm" data-go="exams">&#128220; Exam prep</button>' +
       '<button class="btn ghost sm" data-go="stats">&#128202; My stats</button>' +
       '</div>';
@@ -636,6 +816,126 @@
 
   // ---- play
 
+  // The shelf: what this student could spend right now, on this question, and
+  // nothing else. Rendered on the question screen so the decision is made in
+  // the moment of difficulty rather than in a menu beforehand.
+  function viewCloset() {
+    var bal = S.stats.tokens || 0;
+    var h = topbar('Supply closet', 'map');
+
+    h += '<div class="statgrid">' +
+      '<div class="stat"><div class="n">' + bal + '</div><div class="l">Tokens</div></div>' +
+      '<div class="stat"><div class="n">' + (S.stats.xp || 0) + '</div><div class="l">XP</div></div>' +
+      '<div class="stat"><div class="n">' + (S.stats.attempts || 0) + '</div><div class="l">Attempted</div></div>' +
+      '</div>';
+
+    h += '<div class="card"><h3 style="margin-bottom:4px">How you earn</h3>' +
+      '<p class="faint" style="margin:0">One token every time you <b>attempt</b> a question &mdash; ' +
+      'right or wrong. Getting it wrong pays the same as getting it right, so the ' +
+      'harder you are working, the more help you can afford.</p></div>';
+
+    if (S.stats.grantJustGot) {
+      h += '<div class="banner">🪙 Your instructor gave you <b>' + S.stats.grantJustGot +
+        '</b> token' + (S.stats.grantJustGot === 1 ? '' : 's') + '.</div>';
+      S.stats.grantJustGot = 0;
+      save();
+    }
+
+    if (S.stats.boost) {
+      h += '<div class="banner"><b>Inservice is active.</b> Your next finished session pays one and a half times XP.</div>';
+    }
+
+    h += '<div class="card"><h3>On the shelf</h3>' +
+      '<p class="faint" style="margin:-4px 0 10px">Most of these are spent on a question while you are looking at it. ' +
+      'Nothing you spend is ever shown to the class.</p>';
+    Object.keys(TOKENS).forEach(function (id) {
+      var t = TOKENS[id], c = tokenCost(id), locked = tokenLocked(id);
+      var buyable = id === 'inservice' && !locked && bal >= c && !S.stats.boost;
+      h += '<div class="shopitem' + (locked ? ' off' : '') + '">' +
+        '<div class="shopicon">' + t.icon + '</div>' +
+        '<div style="flex:1"><b>' + esc(t.name) + '</b> <span class="pill sm">' + c + '</span>' +
+        '<div class="faint">' + esc(t.blurb) + '</div>' +
+        '<div class="faint">' + (locked ? 'Locked — unlock it in the skill tree below.' : esc(t.hint)) + '</div></div>' +
+        (buyable ? '<button class="btn ghost sm" data-buy="' + id + '">Use</button>' : '') +
+        '</div>';
+    });
+    h += '</div>';
+
+    // the skill tree: XP buys permanent competence rather than consumables
+    var branches = {};
+    Object.keys(SKILLS).forEach(function (id) {
+      (branches[SKILLS[id].branch] = branches[SKILLS[id].branch] || []).push(id);
+    });
+    h += '<div class="card"><h3 style="margin-bottom:4px">Skill tree</h3>' +
+      '<p class="faint" style="margin:0 0 10px">XP buys these once and you keep them. ' +
+      'You earn XP for correct answers, and harder levels pay more.</p>';
+    Object.keys(branches).forEach(function (br) {
+      h += '<p class="faint" style="margin:12px 0 6px;text-transform:uppercase;letter-spacing:0.08em">' + esc(br) + '</p>';
+      branches[br].forEach(function (id) {
+        var sk = SKILLS[id], owned = hasSkill(id), open = skillAvailable(id);
+        var afford = (S.stats.xp || 0) >= sk.xp;
+        h += '<div class="shopitem' + (owned ? ' owned' : open ? '' : ' off') + '">' +
+          '<div class="shopicon">' + (owned ? '&#10003;' : open ? '&#9675;' : '&#128274;') + '</div>' +
+          '<div style="flex:1"><b>' + esc(sk.name) + '</b> <span class="pill sm">' + sk.xp + ' XP</span>' +
+          '<div class="faint">' + esc(sk.blurb) + '</div>' +
+          (!owned && !open ? '<div class="faint">Needs ' + esc(SKILLS[sk.needs].name) + ' first.</div>' : '') +
+          '</div>' +
+          (!owned && open
+            ? '<button class="btn ghost sm"' + (afford ? '' : ' disabled') + ' data-buyskill="' + id + '">' +
+              (afford ? 'Learn' : 'Locked') + '</button>'
+            : '') +
+          '</div>';
+      });
+    });
+    h += '</div>';
+
+    return h;
+  }
+
+  // Adapted Equipment. The question is re-served a level easier, in place, and
+  // nobody is told - the point is a private way down for a student who was
+  // promoted automatically and is now drowning.
+  function adaptDown(v) {
+    var orig = allQuestions().filter(function (x) { return x.id === v.q.id; })[0] || v.q;
+    var lv = Math.max(1, viewLevel(v) - 1);
+    var nv = prep(serve(orig, lv));
+    nv._level = servedLevel(orig, lv);
+    nv._adapted = true;
+    nv._protected = v._protected;
+    if (S.screen === 'live') {
+      nv._fromPool = v._fromPool;
+      nv._askedAt = v._askedAt;
+      LIVE.view = nv;
+    } else if (S.run) {
+      S.run.views[S.run.idx] = nv;
+    }
+  }
+
+  function closetShelf(v, live) {
+    var ids = offersFor(v, live);
+    if (!ids.length) return '';
+    var bal = S.stats.tokens || 0;
+    var used = [];
+    if (v._dropped) used.push('Consult');
+    if (v._chart) used.push('Chart Review');
+    if (v._protected) used.push('Documentation');
+    if (v._adapted) used.push('Adapted Equipment');
+
+    return '<div class="shelf">' +
+      '<div class="shelf-head"><span class="faint">Supply closet</span>' +
+      '<span class="pill sm">🪙 <b>' + bal + '</b></span></div>' +
+      '<div class="shelf-row">' +
+      ids.map(function (id) {
+        var t = TOKENS[id], c = tokenCost(id), can = bal >= c;
+        return '<button class="chip-btn' + (can ? '' : ' off') + '" data-spend="' + id + '"' +
+          (can ? '' : ' disabled') + ' title="' + esc(t.blurb) + '">' +
+          t.icon + ' ' + esc(t.name) + ' <b>' + c + '</b></button>';
+      }).join('') +
+      '</div>' +
+      (used.length ? '<p class="faint" style="margin:6px 0 0">In use: ' + esc(used.join(', ')) + '</p>' : '') +
+      '</div>';
+  }
+
   function viewPlay() {
     var r = S.run;
     var v = r.views[r.idx];
@@ -664,6 +964,8 @@
     h += renderBody(v);
     h += '</div>';
 
+    h += closetShelf(v, false);
+
     // feedback + advance
     if (v.answered && !r.hideFeedback) {
       h += '<div class="feedback ' + (v.correct ? 'good' : 'bad') + '">' +
@@ -689,8 +991,11 @@
   function renderBody(v) {
     var q = v.q, h = '';
 
+    var dropped = v._dropped || [];
+
     if (q.type === 'mc' || q.type === 'scenario') {
       v.opts.forEach(function (o, pos) {
+        if (dropped.indexOf(pos) > -1 && !v.answered) return;
         var cls = '';
         if (v.answered) {
           if (pos === v.answerPos) cls = 'correct';
@@ -704,6 +1009,7 @@
     } else if (q.type === 'multi') {
       h += '<p class="faint" style="margin:-6px 0 10px">Select every correct answer, then check.</p>';
       v.opts.forEach(function (o, pos) {
+        if (dropped.indexOf(pos) > -1 && !v.answered) return;
         var on = !!v.sel[o.i];
         var cls = on ? 'picked' : '';
         if (v.answered) {
@@ -756,6 +1062,10 @@
     } else if (q.type === 'fill') {
       h += '<div class="field"><input id="fillin" type="text" autocomplete="off" autocapitalize="off" ' +
         'placeholder="Type your answer" value="' + esc(v.value) + '"' + (v.answered ? ' disabled' : '') + '></div>';
+      if (!v.answered && v._chart) {
+        h += '<p class="faint" style="margin:-6px 0 4px">&#128203; Starts with <b>' +
+          esc(v._chart.first) + '</b> &middot; ' + v._chart.len + ' characters</p>';
+      }
       if (!v.answered && q.hint) {
         h += '<p class="faint" style="margin:-6px 0 4px">&#128161; ' + esc(q.hint) + '</p>';
       }
@@ -946,18 +1256,22 @@
     var bucket = elapsed < 10 ? 0 : elapsed < 20 ? 1 : 2;
     var lv = v._level || 1;
 
-    applyResult(v.q.id, v.correct, true, lv);
+    applyResult(v.q.id, v.correct, true, lv, v._protected);
     save();
 
     if (v.correct) {
+      var coTreat = !!LIVE.coTreat;
+      LIVE.coTreat = false;
       liveEvent('clear', {
         qid: v.q.id, topic: v.q.topic, chapter: v.q.chapter,
-        level: lv, bucket: bucket, fromPool: !!v._fromPool
+        level: lv, bucket: bucket, fromPool: !!v._fromPool, coTreat: coTreat
       }).then(function (res) {
         LIVE.busy = false;
         if (res.ok) {
           LIVE.room = res.j.room;
-          LIVE.feedback = res.j.allHands ? '+' + res.j.seconds + 's for the room — all hands cleared!'
+          LIVE.feedback = res.j.creditedTo
+            ? '+' + res.j.seconds + 's for the room — credited to ' + res.j.creditedTo
+            : res.j.allHands ? '+' + res.j.seconds + 's for the room — all hands cleared!'
             : res.j.fromPool ? '+' + res.j.seconds + 's — you cleared one from the pool'
             : res.j.atCap ? 'Correct — you are at your cap, let someone else buy the time'
             : '+' + res.j.seconds + 's for the room';
@@ -1116,6 +1430,8 @@
       h += '<div class="feedback ' + (v.correct ? 'good' : 'bad') + '">' + esc(LIVE.feedback) + '</div>';
     }
 
+    h += closetShelf(v, true);
+
     h += '<div class="sticky-actions">';
     if (!v.answered) {
       if (needsSubmit(v)) h += '<button class="btn" data-livesubmit>Check answer</button>';
@@ -1138,7 +1454,7 @@
       mode: 'practice', chapterId: chapterId, level: lv,
       title: 'Ch ' + ch.number + ' · L' + lv,
       views: picked.map(function (q) { return prep(serve(q, lv)); }),
-      idx: 0, streak: 0,
+      idx: 0, streak: 0, xpStart: S.stats.xp,
       deadline: null, hideFeedback: false, passMark: 0
     };
     S.screen = 'play';
@@ -1152,7 +1468,7 @@
     S.run = {
       mode: opts.mode, examId: opts.examId,
       title: opts.title,
-      views: picked.map(prep), idx: 0, streak: 0,
+      views: picked.map(prep), idx: 0, streak: 0, xpStart: S.stats.xp,
       deadline: opts.minutes ? Date.now() + opts.minutes * 60000 : null,
       hideFeedback: true, passMark: opts.passMark || 0
     };
@@ -1197,8 +1513,20 @@
     var r = S.run;
     // any unanswered questions (ran out of time) count as missed
     r.views.forEach(function (v) {
-      if (!v.answered) { v.answered = true; v.correct = false; applyResult(v.q.id, false, r.mode === "practice", v.q._level || 1); }
+      if (!v.answered) { v.answered = true; v.correct = false; applyResult(v.q.id, false, r.mode === "practice", v.q._level || 1, v._protected); }
     });
+
+    // Inservice pays on the whole session rather than per question, so it is
+    // worth most on a long run at a high level - which is the run worth taking.
+    if (S.stats.boost) {
+      // NOT `r.xpStart || S.stats.xp`: a student who started the session on
+      // zero XP has a perfectly valid xpStart of 0, and the falsy fallback made
+      // the bonus silently evaluate to nothing for exactly the newest students.
+      var gained = S.stats.xp - (typeof r.xpStart === 'number' ? r.xpStart : S.stats.xp);
+      S.stats.xp += Math.round(gained * 0.5);
+      r.boosted = Math.round(gained * 0.5);
+      S.stats.boost = 0;
+    }
 
     var right = r.views.filter(function (v) { return v.correct; }).length;
     var pct = Math.round(100 * right / r.views.length);
@@ -1234,7 +1562,7 @@
     if (v.answered) return;
     v.correct = grade(v);
     v.answered = true;
-    applyResult(v.q.id, v.correct, r.mode === "practice", v.q._level || 1);
+    applyResult(v.q.id, v.correct, r.mode === "practice", v.q._level || 1, v._protected);
 
     if (v.correct) {
       r.streak++;
@@ -1272,7 +1600,19 @@
 
   function bind() {
     app.querySelectorAll('[data-go]').forEach(function (b) {
-      b.onclick = function () { S.screen = b.getAttribute('data-go'); render(); };
+      b.onclick = function () {
+        S.screen = b.getAttribute('data-go');
+        render();
+        // Opening the closet is the moment to find out whether the instructor
+        // has handed anything out. It is the one place a forced sync is worth
+        // a write, because otherwise a grant sits unseen until the student
+        // happens to finish a session whose numbers actually changed.
+        if (S.screen === 'closet' && syncEnabled()) {
+          syncProgress({ type: 'closet' }, true).then(function (res) {
+            if (res && res.ok && S.screen === 'closet' && S.stats.grantJustGot) render();
+          });
+        }
+      };
     });
 
     var tt = app.querySelector('[data-theme-toggle]');
@@ -1430,10 +1770,47 @@
       b.onclick = exitLive;
     });
 
+    // ---- supply closet
+    app.querySelectorAll('[data-spend]').forEach(function (b) {
+      b.onclick = function () {
+        var id = b.getAttribute('data-spend');
+        var v = curView();
+        if (!v || v.answered || !spend(id)) return;
+        if (id === 'consult') applyConsult(v);
+        else if (id === 'chart') applyChart(v);
+        else if (id === 'doc') v._protected = true;
+        else if (id === 'adapted') adaptDown(v);
+        else if (id === 'cotreat') LIVE.coTreat = true;
+        render();
+      };
+    });
+
+    app.querySelectorAll('[data-buy]').forEach(function (b) {
+      b.onclick = function () {
+        var id = b.getAttribute('data-buy');
+        if (!spend(id)) return;
+        if (id === 'inservice') S.stats.boost = 1;
+        save(); render();
+      };
+    });
+
+    app.querySelectorAll('[data-buyskill]').forEach(function (b) {
+      b.onclick = function () {
+        var id = b.getAttribute('data-buyskill');
+        var sk = SKILLS[id];
+        if (!sk || hasSkill(id) || !skillAvailable(id)) return;
+        if ((S.stats.xp || 0) < sk.xp) return;
+        S.stats.xp -= sk.xp;
+        S.stats.skills = S.stats.skills || {};
+        S.stats.skills[id] = true;
+        save(); render();
+      };
+    });
+
     var reset = app.querySelector('[data-reset]');
     if (reset) reset.onclick = function () {
       if (!confirm('Reset all progress on this device? This cannot be undone.')) return;
-      S.progress = {}; S.stats = { xp: 0, bestStreak: 0, sessions: 0, examRuns: [] };
+      S.progress = {}; S.stats = { xp: 0, bestStreak: 0, sessions: 0, examRuns: [], tokens: 0, skills: {}, boost: 0, grantClaimed: 0, attempts: 0 };
       save(); S.screen = 'map'; render();
     };
   }

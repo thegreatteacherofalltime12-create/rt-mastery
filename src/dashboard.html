@@ -112,7 +112,7 @@
 
     h += '<div class="card"><h3>Students</h3><div class="tablewrap"><table>' +
       '<tr><th>Name</th><th class="num">Level</th><th class="num">Mastered</th><th>Progress</th><th class="num">Rounds</th>' +
-      '<th class="num">Best exam</th><th>Weakest topics</th><th class="num">Last seen</th><th></th></tr>' +
+      '<th class="num">Best exam</th><th class="num">Tokens</th><th>Weakest topics</th><th class="num">Last seen</th><th></th></tr>' +
       s.map(function (x) {
         var pct = x.totalQuestions ? Math.round(100 * (x.mastered || 0) / x.totalQuestions) : 0;
         var stale = !x.updatedAt || (Date.now() - new Date(x.updatedAt)) > 7 * 86400000;
@@ -124,6 +124,8 @@
           '<td><span class="mini"><i style="width:' + pct + '%"></i></span> <span class="faint">' + pct + '%</span></td>' +
           '<td class="num">' + (x.sessions || 0) + '</td>' +
           '<td class="num">' + (best ? best + '%' : '—') + '</td>' +
+          '<td class="num">' + (x.tokens || 0) + ' <button class="iconbtn" data-grant="' + esc(slug(x.name)) + '" ' +
+          'data-gname="' + esc(x.name) + '" title="Give tokens">+</button></td>' +
           '<td class="faint">' + esc((x.weakTopics || []).slice(0, 3).join(', ') || '—') + '</td>' +
           '<td class="num faint">' + ago(x.updatedAt) + '</td>' +
           '<td class="num"><button class="iconbtn" data-del="' + esc(slug(x.name)) + '" ' +
@@ -133,9 +135,47 @@
       '<p class="faint" style="margin-top:10px">Greyed rows have not played in over a week. ' +
       'Use &times; to remove a duplicate or mistyped name &mdash; this cannot be undone.</p></div>';
 
-    h += '<button class="btn ghost sm" id="refresh">Refresh</button>';
+    h += '<div class="btn-row" style="margin-top:10px">' +
+      '<button class="btn ghost sm" id="refresh">Refresh</button>' +
+      '<button class="btn ghost sm" id="grantall">🪙 Give everyone tokens</button>' +
+      '</div>';
     out.innerHTML = h;
     document.getElementById('refresh').onclick = load;
+
+    // Tokens she hands out. One write per student, no reads. The student's own
+    // app takes the difference next time it syncs, so a grant cannot be
+    // applied twice and is not lost if their phone is off right now.
+    function grant(ids, who) {
+      var n = prompt('How many tokens for ' + who + '?', '5');
+      if (n === null) return;
+      n = Math.round(Number(n));
+      if (!n || n < 1) return;
+      var code = document.getElementById('code').value.trim();
+      var pin = document.getElementById('pin').value;
+      fetch('/api/grant', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code: code, pin: pin, ids: ids, tokens: n })
+      }).then(function (r) { return r.json(); })
+        .then(function (j) {
+          if (j.ok) {
+            alert(n + ' token' + (n === 1 ? '' : 's') + ' to ' + who +
+                  '. They will see them the next time they finish a round.');
+            load();
+          } else alert('Could not give tokens: ' + (j.error || 'unknown error'));
+        })
+        .catch(function () { alert('Network error.'); });
+    }
+
+    Array.prototype.forEach.call(document.querySelectorAll('[data-grant]'), function (b) {
+      b.onclick = function () {
+        grant([b.getAttribute('data-grant')], b.getAttribute('data-gname'));
+      };
+    });
+
+    var ga = document.getElementById('grantall');
+    if (ga) ga.onclick = function () {
+      grant(s.map(function (x) { return slug(x.name); }), 'the whole class');
+    };
 
     Array.prototype.forEach.call(document.querySelectorAll('[data-del]'), function (b) {
       b.onclick = function () {
