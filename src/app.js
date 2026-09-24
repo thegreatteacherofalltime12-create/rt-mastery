@@ -1512,8 +1512,48 @@
         return head + 'Missed. You were expected to get this ' + j.expected +
                ' times in 100 \u2014 ' + d.toFixed(1) + ' for you.';
       }
+    },
+
+    walkthrough: {
+      banner: function (r, g) {
+        var pick = LIVE.wt && LIVE.wt.cell;
+        return '<div class="card" style="padding:12px 14px;margin-bottom:10px">' +
+          '<div style="display:flex;justify-content:space-between;font-size:0.85rem">' +
+          '<span class="dim">The audit</span>' +
+          '<span><b>' + (g.found || 0) + '</b> of ' + g.total + ' barriers found</span></div>' +
+          (pick !== undefined && pick !== null
+            ? '<p class="faint" style="margin:6px 0 0">Surveying <b>' +
+              esc(areaName(pick)) + '</b> \u2014 get this right and you see what is wrong with it.</p>'
+            : '') +
+          '</div>';
+      },
+      clockMs: function (g) { return g.endsAtMs || null; },
+      outcome: function (r, g) {
+        return {
+          won: !!g.done,
+          title: g.done ? 'Building audited' : 'Time',
+          detail: (g.found || 0) + ' of ' + g.total + ' barriers found'
+        };
+      },
+      say: function (j, correct) {
+        if (!correct) return 'Missed \u2014 that area stays unsurveyed. It costs the room nothing.';
+        if (j.already) return 'Somebody else got there first. Pick another area.';
+        if (j.barrier) {
+          var b = barrierInfo(j.barrier);
+          return areaName(j.cell) + ' \u2014 ' + b.name + '. ' + b.note;
+        }
+        return areaName(j.cell) + ' is clear. Nothing wrong with it.';
+      }
     }
   };
+
+  var AREAS = (window.RT_CONTENT && RT_CONTENT.areas) || [];
+  var BARRIERS = (window.RT_CONTENT && RT_CONTENT.barriers) || [];
+
+  function areaName(i) { return AREAS[i] || ('Area ' + i); }
+  function barrierInfo(id) {
+    return BARRIERS.filter(function (b) { return b.id === id; })[0] || { name: id, note: '' };
+  }
 
   // What the app expects of THIS student on THIS question, from their own
   // Leitner history, as a percentage. A box they have mastered is a high
@@ -1535,7 +1575,7 @@
   var MY_GAMES = Object.keys(LIVE_GAMES);
 
   var LIVE = { code: '', room: null, poll: null, view: null, feedback: '', busy: false,
-               fc: null,
+               fc: null, wt: null,
                misses: {}, lastJson: '', stale: '' };
 
   function chapterLabel(id) {
@@ -1655,7 +1695,8 @@
       liveEvent('clear', {
         qid: v.q.id, topic: v.q.topic, chapter: v.q.chapter,
         level: lv, bucket: bucket, fromPool: !!v._fromPool, coTreat: coTreat,
-        expected: fcExtra.expected, defend: fcExtra.defend
+        expected: fcExtra.expected, defend: fcExtra.defend,
+        cell: LIVE.wt ? LIVE.wt.cell : undefined
       }).then(function (res) {
         LIVE.busy = false;
         if (res.ok) {
@@ -1706,6 +1747,14 @@
 
   function liveNext() {
     LIVE.feedback = '';
+    // In The Walk-Through the next step is choosing where to look again, not
+    // another question handed to you.
+    if (liveGameOf(LIVE.room) === 'walkthrough') {
+      LIVE.wt = null;
+      LIVE.view = null;
+      render();
+      return;
+    }
     serveNextLive();
     render();
   }
@@ -1827,6 +1876,27 @@
 
     // Everything above the question belongs to the format.
     if (def.banner) h += def.banner(r, g);
+
+    // The Walk-Through asks where you want to look before it asks you
+    // anything. Choosing first is what makes this an audit rather than a
+    // lucky dip, and it means a wrong answer costs a decision, not a life.
+    if (liveGameOf(r) === 'walkthrough' && !LIVE.wt) {
+      var seen = g.seen || {};
+      return h + '<div class="card pad-lg">' +
+        '<h2 style="margin-bottom:4px">Where do you want to look?</h2>' +
+        '<p class="dim" style="font-size:0.9rem;margin-top:0">Pick an area you have not surveyed. ' +
+        'Answer the question correctly and you will see what is wrong with it.</p>' +
+        '<div class="areagrid">' +
+        AREAS.map(function (name, i) {
+          var st = seen[i];
+          if (st) {
+            return '<span class="area done ' + (st === 'clear' ? 'ok' : 'bad') + '">' +
+              esc(name) + '</span>';
+          }
+          return '<button class="area" data-cell="' + i + '">' + esc(name) + '</button>';
+        }).join('') +
+        '</div></div>';
+    }
 
     var v = LIVE.view;
     if (!v && LIVE.done) {
@@ -2319,7 +2389,7 @@
       // An impatient second tap on a cold start would write the player twice.
       if (LIVE.busy) return;
       LIVE.busy = true;
-      LIVE.code = code; LIVE.misses = {}; LIVE.fc = null;
+      LIVE.code = code; LIVE.misses = {}; LIVE.fc = null; LIVE.wt = null;
       liveEvent('join').then(function (res) {
         LIVE.busy = false;
         // 426: the room is running a format this bundle does not carry.
@@ -2331,6 +2401,15 @@
       });
     };
 
+    app.querySelectorAll('[data-cell]').forEach(function (b) {
+      b.onclick = function () {
+        LIVE.wt = { cell: parseInt(b.getAttribute('data-cell'), 10) };
+        LIVE.feedback = '';
+        serveNextLive();
+        render();
+      };
+    });
+
     var ls = app.querySelector('[data-livesubmit]'); if (ls) ls.onclick = liveAnswer;
     var ln = app.querySelector('[data-livenext]'); if (ln) ln.onclick = liveNext;
     // Both the topbar arrow and the end screen's full-width button exist at the
@@ -2339,7 +2418,7 @@
     function exitLive() {
       stopLivePolling();
       LIVE.room = null; LIVE.view = null; LIVE.feedback = '';
-      LIVE.lastJson = ''; LIVE.stale = ''; LIVE.code = ''; LIVE.misses = {}; LIVE.fc = null;
+      LIVE.lastJson = ''; LIVE.stale = ''; LIVE.code = ''; LIVE.misses = {}; LIVE.fc = null; LIVE.wt = null;
       S.screen = 'map'; render();
       if (syncEnabled()) syncProgress({ type: 'live' });
     }

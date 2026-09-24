@@ -78,6 +78,17 @@
   .dial.behind .dial-track > i { background: var(--bad); }
   .dial-mid { position: absolute; left: 50%; top: -4px; width: 2px; height: 18px; background: var(--line); }
   .dial-ends { display: flex; justify-content: space-between; font-size: 0.72rem; opacity: 0.5; }
+
+  /* The Walk-Through: a floor plan the class fills in together. */
+  .plan { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; margin: 16px 0; }
+  .cell { position: relative; min-height: 64px; border-radius: 10px; padding: 8px; display: flex; flex-direction: column; justify-content: center; text-align: center; border: 1px solid var(--line); background: var(--card-hi); }
+  .cell.unknown { opacity: 0.45; }
+  .cell.clear { border-color: var(--good); background: var(--card); }
+  .cell.barrier { border-color: var(--bad); background: var(--bad-soft); }
+  .cell-name { font-size: 0.76rem; font-weight: 650; line-height: 1.2; }
+  .cell-flag { font-size: 0.68rem; font-weight: 800; color: var(--bad); margin-top: 4px; text-transform: uppercase; letter-spacing: 0.04em; }
+  .cell-ok { position: absolute; top: 4px; right: 6px; font-size: 0.7rem; color: var(--good); }
+  @media (max-width: 900px) { .plan { grid-template-columns: repeat(3, 1fr); } }
 </style>
 </head>
 <body>
@@ -277,8 +288,114 @@
       lobby: bfLobby,
       running: bfRunning,
       over: bfOver
+    },
+
+    walkthrough: {
+      label: 'The Walk-Through',
+      icon: '\u267F',
+      blurb: 'An accessibility audit of a floor plan. Students pick an area, answer correctly, and see what is wrong with it. The class audits one building together - there is nobody to beat.',
+      settings: function () {
+        return '<div class="btn-row">' +
+          '<div class="field" style="flex:1;margin:0"><label for="wtbar">Barriers hidden</label>' +
+          '<input id="wtbar" type="number" value="6" min="1" max="20"></div>' +
+          '<div class="field" style="flex:1;margin:0"><label for="wtmins">Clock (min)</label>' +
+          '<input id="wtmins" type="number" value="15" min="1" max="60"></div>' +
+          '</div>';
+      },
+      config: function () {
+        return {
+          areas: (window.RT_AREAS || []).length || 30,
+          barriers: Number(document.getElementById('wtbar').value) || 6,
+          minutes: Number(document.getElementById('wtmins').value) || 15
+        };
+      },
+      clockMs: function (r) { return (r.gs || {}).endsAtMs || null; },
+      autoEnd: function (r) {
+        var g = r.gs || {};
+        return !!(g.endsAtMs && g.endsAtMs < Date.now() - 1500);
+      },
+      controls: function () {
+        return [{ id: 'extend', action: 'extend', extra: { seconds: 60 } }];
+      },
+      lobby: wtLobby,
+      running: wtRunning,
+      over: wtOver
     }
   };
+
+  // ------------------------------------------------------ The Walk-Through
+
+  var AREAS = window.RT_AREAS || [];
+  var BARRIERS = window.RT_BARRIERS || [];
+
+  function barrierOf(id) {
+    return BARRIERS.filter(function (b) { return b.id === id; })[0] ||
+           { id: id, name: id, note: '' };
+  }
+
+  function wtPlan(g) {
+    var seen = g.seen || {};
+    return '<div class="plan">' + AREAS.map(function (name, i) {
+      var state = seen[i];
+      var cls = !state ? 'unknown' : state === 'clear' ? 'clear' : 'barrier';
+      var label = state && state !== 'clear' ? barrierOf(state).name : '';
+      return '<div class="cell ' + cls + '">' +
+        '<span class="cell-name">' + esc(name) + '</span>' +
+        (label ? '<span class="cell-flag">' + esc(label) + '</span>' : '') +
+        (state === 'clear' ? '<span class="cell-ok">&#10003;</span>' : '') +
+        '</div>';
+    }).join('') + '</div>';
+  }
+
+  function wtLobby() {
+    var r = S.room, g = r.gs || {};
+    return '<div class="topbar"><strong>The Walk-Through</strong><div class="spacer"></div>' +
+      '<span class="pill">' + r.players.length + ' joined</span></div>' +
+      '<div class="card pad-lg center"><p class="dim" style="margin:0 0 4px">Room code</p>' +
+      '<div class="roomcode">' + esc(r.code) + '</div>' +
+      '<p class="dim"><b>' + g.total + '</b> accessibility barriers are hidden somewhere in ' +
+      'this building. Answer correctly to survey an area.</p></div>' +
+      '<div class="card"><h3>In the room</h3>' +
+      (r.players.length
+        ? '<div>' + r.players.map(function (p) { return '<span class="player">' + esc(p.name) + '</span>'; }).join('') + '</div>'
+        : '<p class="dim">Nobody yet. Read the room code out.</p>') +
+      '</div>' +
+      '<button class="btn" id="start"' + (r.players.length ? '' : ' disabled') + '>Start the clock</button>';
+  }
+
+  function wtRunning() {
+    var r = S.room, g = r.gs || {};
+    return '<div class="clock" id="clock">--:--</div>' +
+      '<div class="headline" style="margin-bottom:10px"><b>' + (g.found || 0) + '</b> of <b>' +
+      g.total + '</b> barriers found &middot; <span class="dim">' + (g.surveyed || 0) +
+      ' areas surveyed</span></div>' +
+      wtPlan(g) +
+      '<div class="ctl">' +
+      '<button class="btn ghost sm" id="extend">+60 seconds</button>' +
+      '<button class="btn ghost sm" id="end">End round</button>' +
+      '</div>';
+  }
+
+  function wtOver() {
+    var r = S.room, g = r.gs || {};
+    var seen = g.seen || {};
+    var found = Object.keys(seen).filter(function (k) { return seen[k] !== 'clear'; });
+    return '<div class="center" style="margin-top:18px">' +
+      '<div style="font-size:3.2rem">' + (g.done ? '\u267F' : '\u23F3') + '</div>' +
+      '<h1>' + (g.done ? 'Building audited' : 'Time') + '</h1>' +
+      '<p class="dim">' + (g.found || 0) + ' of ' + g.total + ' barriers found</p></div>' +
+      wtPlan(g) +
+      (found.length
+        ? '<div class="card"><h3 style="margin-bottom:4px">What the audit turned up</h3>' +
+          '<p class="faint" style="margin:0 0 10px">This is the report. No names, ever.</p>' +
+          found.map(function (k) {
+            var b = barrierOf(seen[k]);
+            return '<div class="betrow"><span><b>' + esc(AREAS[k] || k) + '</b> \u2014 ' +
+              esc(b.name) + '</span><span class="dim">' + esc(b.note) + '</span></div>';
+          }).join('') + '</div>'
+        : '') +
+      '<button class="btn" id="again">New round</button>';
+  }
 
   // --------------------------------------------------- Beat the Forecast
   //

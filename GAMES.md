@@ -6,9 +6,8 @@ class of exactly ten, and the honest flaw in each — so that a format is not
 rebuilt from scratch, and so that the shared plumbing is designed against real
 candidates rather than imagined ones.
 
-**Buy Time**, **The Supply Closet**, **Three Certainties**, **Field Day**, **The
-Standing Order** and **Beat the Forecast** are built. Everything else is a
-design, not a promise.
+Everything in the table below is now built except Caseload, which is deliberately
+set aside, and The Liar’s Table and Consult Service, which are not.
 
 ---
 
@@ -99,7 +98,7 @@ layer, the level ladder, Leitner scheduling, and six question types.
 | ~~Field Day~~ | **built** | zero extra ops | the racers are chapters, not students |
 | ~~Three Certainties~~ | **built** | 1 write/round | calibration is personal, not ranked |
 | ~~Beat the Forecast~~ | **built** | reuses the room doc | private per-student handicap |
-| The Walk-Through | large | same as Buy Time | cooperative, no ranking |
+| ~~The Walk-Through~~ | **built** | same as Buy Time | cooperative, no ranking |
 
 ### The Supply Closet — the token shop  *(built)*
 
@@ -236,11 +235,23 @@ bar came down to meet them, and they cleared it themselves rather than being
 handed a title. Losing it is as private as failing: the former holder is not
 told either.
 
-### The Walk-Through — accessibility audit as Battleship
+### The Walk-Through — accessibility audit as Battleship  *(built)*
 
-A facility floor plan with hidden barriers instead of ships: *Stairs Only*, *No
-Curb Cut*, *Narrow Doorway*. Tonally the best fit for RT of anything here, and
-the only one needing genuinely new UI. Large build.
+A facility floor plan with hidden barriers instead of ships: *Stairs only*, *No
+curb cut*, *Narrow doorway*, *Heavy door*, *No signage*, *No transfer space*,
+*Uncontrolled noise*, *Glare and low light*. Thirty named areas from the main
+entrance to the pool hoist.
+
+A student picks the area they want to survey **before** they are asked anything,
+and a correct answer is what buys them the look. Getting it wrong leaves that
+area unsurveyed and costs the room nothing. The class audits one building
+together, so there is no ranking of any kind, and the end screen is a report of
+what the building gets wrong — not of who found it.
+
+**The hidden layout never leaves the server.** It is drawn server-side at create
+and the projection sends only what has actually been surveyed; if the plan rode
+along on the wire, anyone with a phone could read the answers out of a network
+tab. A test asserts it appears in neither the create response nor any poll.
 
 ---
 

@@ -7,6 +7,32 @@
 const fs = require('fs');
 const path = require('path');
 
+// The Walk-Through floor plan. One source of truth: the projector and the
+// phone both draw this, and the Worker only ever deals in indices, so the
+// list must not drift between them. Emitting it from here makes that
+// impossible rather than merely unlikely.
+const WALK_AREAS = [
+  'Main entrance', 'Reception desk', 'Front corridor', 'Lift lobby', 'Stairwell A',
+  'Day room', 'Quiet room', 'Group therapy room', 'Art studio', 'Music room',
+  'Kitchen', 'Dining hall', 'Servery', 'Staff office', 'Nurse station',
+  'Accessible WC', 'Main WC', 'Changing places room', 'Shower room', 'Locker room',
+  'Pool deck', 'Pool hoist', 'Gym floor', 'Equipment store', 'Therapy garden',
+  'Garden path', 'Raised beds', 'Car park', 'Drop-off bay', 'Rear exit'
+];
+
+// What a walk-through can turn up. These are the barriers a Therapeutic
+// Recreation student is meant to be able to name on sight.
+const WALK_BARRIERS = [
+  { id: 'stairs', name: 'Stairs only', note: 'No step-free route to this space at all.' },
+  { id: 'curb', name: 'No curb cut', note: 'A wheelchair cannot get up off the path.' },
+  { id: 'door', name: 'Narrow doorway', note: 'Under 32 inches clear - a chair will not pass.' },
+  { id: 'heavy', name: 'Heavy door', note: 'Too much force to open one-handed or seated.' },
+  { id: 'signage', name: 'No signage', note: 'Nothing readable for low vision or low literacy.' },
+  { id: 'transfer', name: 'No transfer space', note: 'Nowhere beside the fixture to transfer from a chair.' },
+  { id: 'noise', name: 'Uncontrolled noise', note: 'Hard surfaces and no quiet route through.' },
+  { id: 'lighting', name: 'Glare and low light', note: 'Unusable for low vision, and a fall risk.' }
+];
+
 const ROOT = __dirname;
 const CONTENT = path.join(ROOT, 'content');
 const SRC = path.join(ROOT, 'src');
@@ -166,7 +192,8 @@ function build() {
     questions: c.questions.map(({ flag, ...q }) => q)
   }));
 
-  const payload = { chapters: shipped, exams, builtAt: new Date().toISOString() };
+  const payload = { chapters: shipped, exams, areas: WALK_AREAS, barriers: WALK_BARRIERS,
+                    builtAt: new Date().toISOString() };
   const contentJS = 'window.RT_CONTENT=' + JSON.stringify(payload) + ';';
 
   fs.writeFileSync(path.join(DIST, 'content.js'), contentJS);
@@ -176,7 +203,9 @@ function build() {
   // only: id, number, title. A few hundred bytes against ~200KB.
   const manifest = shipped.map((c) => ({ id: c.id, number: c.number, title: c.title }));
   fs.writeFileSync(path.join(DIST, 'chapters.js'),
-    'window.RT_CHAPTERS=' + JSON.stringify(manifest) + ';');
+    'window.RT_CHAPTERS=' + JSON.stringify(manifest) + ';\n' +
+    'window.RT_AREAS=' + JSON.stringify(WALK_AREAS) + ';\n' +
+    'window.RT_BARRIERS=' + JSON.stringify(WALK_BARRIERS) + ';');
   for (const f of ['index.html', 'styles.css', 'app.js', 'dashboard.html', 'room.html']) {
     fs.copyFileSync(path.join(SRC, f), path.join(DIST, f));
   }

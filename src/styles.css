@@ -449,3 +449,16 @@ select option { background: var(--bg-soft); color: var(--text); }
 .betrow:first-of-type { border-top: 0; }
 .warnline { color: var(--bad); font-weight: 650; font-size: 0.9rem; }
 .goodline { color: var(--good); font-weight: 650; font-size: 0.9rem; }
+
+/* -------------------------------------------------------- the walk-through */
+/* Choosing where to look comes before earning the look. */
+.areagrid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 7px; margin-top: 12px; }
+.area {
+  display: block; width: 100%; padding: 11px 10px; font: inherit; font-size: 0.82rem;
+  font-weight: 600; text-align: left; color: var(--text); background: var(--card-hi);
+  border: 1px solid var(--line); border-radius: 10px; cursor: pointer;
+}
+.area:hover { border-color: var(--accent); color: var(--accent); }
+.area.done { cursor: default; opacity: 0.55; }
+.area.done.ok { border-color: var(--good); color: var(--good); }
+.area.done.bad { border-color: var(--bad); color: var(--bad); opacity: 0.85; }

@@ -1060,8 +1060,133 @@ const GAMES = {
       async clear(room, ctx) { return forecastHole(room, ctx, true); },
       async miss(room, ctx) { return forecastHole(room, ctx, false); }
     }
+  },
+
+  // ---------------------------------------------------- The Walk-Through
+  //
+  // An accessibility audit of a facility floor plan, played like Battleship
+  // with barriers instead of ships. A student picks an area they want to
+  // survey, and a correct answer is what buys them the look. Get it wrong and
+  // the area simply stays unsurveyed - it costs the room nothing.
+  //
+  // It is cooperative and there is no ranking of any kind: the class is
+  // auditing one building together.
+  //
+  // THE HIDDEN PLAN NEVER LEAVES THE SERVER. project() sends only what has
+  // actually been surveyed. If the layout rode along on the wire, anyone with
+  // a phone could read the answers out of a network tab.
+  walkthrough: {
+    label: 'The Walk-Through',
+    blurb: 'An accessibility audit of a floor plan. Pick an area, answer correctly, and see what is wrong with it. The class audits one building together.',
+
+    config(body) {
+      return {
+        areas: Math.min(60, Math.max(6, Number(body.areas) || 30)),
+        barriers: Math.min(20, Math.max(1, Number(body.barriers) || 6)),
+        minutes: Math.min(60, Math.max(1, Number(body.minutes) || 15))
+      };
+    },
+
+    // The layout is drawn HERE, server-side, once. A client cannot influence
+    // it and cannot read it.
+    newState(cfg) {
+      const n = (cfg && cfg.areas) || 30;
+      const count = Math.min((cfg && cfg.barriers) || 6, n);
+      const picks = [];
+      const bytes = crypto.getRandomValues(new Uint32Array(count * 4));
+      let b = 0;
+      while (picks.length < count && b < bytes.length) {
+        const cell = bytes[b++] % n;
+        if (picks.indexOf(cell) === -1) picks.push(cell);
+      }
+      // fall back to a linear sweep if the draw kept colliding
+      for (let i = 0; picks.length < count && i < n; i++) {
+        if (picks.indexOf(i) === -1) picks.push(i);
+      }
+      return { plan: picks, seen: {}, found: 0, surveyed: 0, endsAtMs: 0 };
+    },
+
+    project(room) {
+      const cfg = room.cfg || {};
+      const gs = room.gs || {};
+      const total = (cfg.barriers || 6);
+      return {
+        areas: cfg.areas || 30,
+        total: total,
+        startMinutes: cfg.minutes || 15,
+        endsAtMs: gs.endsAtMs || null,
+        // ONLY what has been surveyed. gs.plan is deliberately absent.
+        seen: gs.seen || {},
+        found: gs.found || 0,
+        surveyed: gs.surveyed || 0,
+        done: (gs.found || 0) >= total
+      };
+    },
+
+    onStart(room, set) {
+      room.gs.endsAtMs = set['gs.endsAtMs'] =
+        Date.now() + (room.cfg.minutes || 15) * 60000;
+    },
+
+    actions: {
+      extend(room, set, inc, body) {
+        const add = Math.min(600, Math.max(10, Number(body.seconds) || 60));
+        if ((room.gs.endsAtMs || 0) > Date.now()) {
+          inc['gs.endsAtMs'] = add * 1000;
+          room.gs.endsAtMs = room.gs.endsAtMs + add * 1000;
+        } else {
+          room.gs.endsAtMs = set['gs.endsAtMs'] = Date.now() + add * 1000;
+        }
+      }
+    },
+
+    events: {
+      // Getting it wrong leaves the area unsurveyed and costs the room nothing.
+      // There is nothing to write and nobody to tell.
+      async miss() { return { surveyed: false }; },
+
+      async clear(room, ctx) {
+        const n = (room.cfg && room.cfg.areas) || 30;
+        const cell = Math.round(Number(ctx.body.cell));
+        if (!(cell >= 0 && cell < n)) return { error: 'no such area' };
+
+        room.gs.seen = room.gs.seen || {};
+        // Somebody else got there first. Not an error, and not a write.
+        if (room.gs.seen[cell]) return { surveyed: false, already: true, cell: cell };
+
+        const isBarrier = (room.gs.plan || []).indexOf(cell) !== -1;
+        // The barrier's KIND is derived from the cell, so the document never
+        // has to store it and two rooms never read the same area the same way.
+        const kind = isBarrier ? WALK_BARRIER_IDS[cell % WALK_BARRIER_IDS.length] : 'clear';
+
+        room.gs.seen[cell] = kind;
+        room.gs.surveyed = (room.gs.surveyed || 0) + 1;
+        if (isBarrier) room.gs.found = (room.gs.found || 0) + 1;
+
+        const set = {};
+        const inc = { 'gs.surveyed': 1 };
+        // A PLAIN dotted key. commitRoom quotes each segment itself, so
+        // passing an already-backticked path here stored every survey as null.
+        set['gs.seen.' + cell] = kind;
+        if (isBarrier) inc['gs.found'] = 1;
+
+        const total = (room.cfg && room.cfg.barriers) || 6;
+        if (room.gs.found >= total) { room.state = set.state = 'ended'; }
+
+        await ctx.commit({ set, inc });
+        return {
+          surveyed: true, cell: cell, barrier: isBarrier ? kind : null,
+          found: room.gs.found, total: total,
+          done: room.gs.found >= total
+        };
+      }
+    }
   }
 };
+
+// Only the ids. The names and the explanations live in the clients, which are
+// the only things that need to render them.
+const WALK_BARRIER_IDS = ['stairs', 'curb', 'door', 'heavy', 'signage', 'transfer', 'noise', 'lighting'];
 
 /**
  * One hole of Beat the Forecast.
@@ -1195,7 +1320,7 @@ async function handleRoomControl(request, env) {
       code: code, classCode: classCode, game: game,
       state: 'lobby', stage: '',
       cfg: def.config(body),
-      gs: def.newState(),
+      gs: def.newState(def.config(body)),
       players: {},
       createdAt: new Date().toISOString()   // load-bearing: the TTL check reads it
     };
