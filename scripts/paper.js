@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 /**
- * Mixes the two test banks into one 100 question paper, and renders it to PDF.
+ * Mixes the two test banks into one 100 question paper, and renders it to PDF
+ * twice: once as the paper the students sit, and once as a grading copy with
+ * the answer highlighted where it stands.
  *
  *   node scripts/testbank.js && node scripts/variants.js && node scripts/paper.js
  *
@@ -173,13 +175,19 @@ fs.writeFileSync(path.join(OUT, 'RT-final-paper-aiken.txt'), laid.map((q) =>
 const esc = (s) => String(s == null ? '' : s)
   .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
-const html = `<!DOCTYPE html>
+// Two documents out of one layout: the paper the students sit, and the same
+// paper with the answer highlighted where it stands. Both are built from the
+// same `laid` array in the same run, so the key cannot drift out of step with
+// the paper - a key that disagrees with the paper it marks is worse than none.
+function buildHtml(key) {
+  return `<!DOCTYPE html>
 <html lang="en"><head><meta charset="utf-8">
-<title>Therapeutic Recreation — Examination</title>
+<title>Therapeutic Recreation &mdash; ${key ? 'Instructor Key' : 'Examination'}</title>
 <style>
   @page { size: letter; margin: 19mm 16mm 16mm; }
   * { box-sizing: border-box; }
-  body { font: 10.25pt/1.36 Georgia, "Times New Roman", serif; color: #111; margin: 0; }
+  body { font: 10.25pt/1.36 Georgia, "Times New Roman", serif; color: #111; margin: 0;
+    -webkit-print-color-adjust: exact; print-color-adjust: exact; }
 
   .cover { text-align: center; padding-top: 48mm; page-break-after: always; }
   .cover h1 { font-size: 21pt; margin: 0 0 4mm; letter-spacing: 0.01em; }
@@ -198,6 +206,23 @@ const html = `<!DOCTYPE html>
   ol.opts li { margin-bottom: 0.3mm; }
   ol.opts .L { display: inline-block; width: 5.5mm; font-weight: 600; }
 
+  /* The marked answer. Yellow falls to a legible grey on a mono printer, but a
+     grading copy cannot rest on colour alone, so the weight and the tick carry
+     it too. */
+  ol.opts li.ans { background: #ffef9e; font-weight: 700;
+    padding: 0.5mm 1.8mm; margin-left: -1.8mm; border-radius: 1mm; }
+  ol.opts li.ans::after { content: ' \\2713'; color: #7a5c00; font-weight: 700; }
+
+  .warn { display: inline-block; margin: -16mm 0 14mm; padding: 2mm 6mm;
+    border: 0.8pt solid #a00; color: #a00; font-size: 9pt; letter-spacing: 0.12em; }
+
+  /* Only the cover is stamped. A per-page warning has to be position:fixed to
+     repeat, Chrome then paints it at one offset on every page and confines it
+     to the content column, so it strikes through question one wherever it
+     lands and vanishes if pushed into the margin. The highlighting is the
+     per-page signal instead: no sheet of this carrying yellow bars and ticks
+     can be mistaken for a student copy. */
+
   h2 { font-size: 13pt; margin: 0 0 4mm; page-break-before: always; }
   .keygrid { columns: 5; column-gap: 8mm; font-size: 10pt; }
   .keygrid div { break-inside: avoid; margin-bottom: 1mm; }
@@ -209,8 +234,15 @@ const html = `<!DOCTYPE html>
 
 <div class="cover">
   <h1>Therapeutic Recreation</h1>
-  <div class="sub">Examination &middot; ${laid.length} questions</div>
-  <div class="fields">
+  <div class="sub">${key ? 'Instructor key' : 'Examination'} &middot; ${laid.length} questions</div>
+${key ? '  <div class="warn">INSTRUCTOR KEY &middot; DO NOT DISTRIBUTE</div>' : ''}
+${key ? `  <div class="instructions" style="margin-top:0">
+    <ol>
+      <li>The correct answer is highlighted where it stands. There is no key at the back to turn to.</li>
+      <li>One point each, ${laid.length} in total. Nothing is deducted for a wrong answer.</li>
+      <li>Question numbers, option letters and option order match the student paper exactly.</li>
+    </ol>
+  </div>` : `  <div class="fields">
     <div><b>Name</b><span class="rule"></span></div>
     <div><b>Date</b><span class="rule"></span></div>
     <div><b>Section</b><span class="rule"></span></div>
@@ -221,15 +253,16 @@ const html = `<!DOCTYPE html>
       <li>Mark your choice clearly. An unclear mark is scored as no answer.</li>
       <li>Nothing is deducted for a wrong answer, so do not leave anything blank.</li>
     </ol>
-  </div>
+  </div>`}
 </div>
 
 ${laid.map((q) => `<div class="q"><div class="stem"><span class="n">${q.n}.</span> ${esc(q.prompt)}</div>
 <ol class="opts">${q.choices.map((c, i) =>
-  `<li><span class="L">${LETTERS[i]}.</span> ${esc(c)}</li>`).join('')}</ol></div>`).join('\n')}
+  `<li${key && LETTERS[i] === q.letter ? ' class="ans"' : ''}><span class="L">${LETTERS[i]}.</span> ${esc(c)}</li>`
+).join('')}</ol></div>`).join('\n')}
 
-<h2>Answer key</h2>
-<div class="keygrid">${laid.map((q) => `<div>${q.n}. <b>${q.letter}</b></div>`).join('')}</div>
+${key ? '' : `<h2>Answer key</h2>
+<div class="keygrid">${laid.map((q) => `<div>${q.n}. <b>${q.letter}</b></div>`).join('')}</div>`}
 
 <h2>Question sources</h2>
 <table>
@@ -241,9 +274,7 @@ ${laid.map((q) => `<div class="q"><div class="stem"><span class="n">${q.n}.</spa
 on this paper come from the same source item.</p>
 
 </body></html>`;
-
-const htmlPath = path.join(OUT, 'RT-final-paper.html');
-fs.writeFileSync(htmlPath, html, 'utf8');
+}
 
 // ---------------------------------------------------------------- pdf
 
@@ -254,18 +285,26 @@ const BROWSERS = [
   'C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe'
 ];
 const browser = BROWSERS.find((b) => fs.existsSync(b));
-const pdfPath = path.join(OUT, 'RT-final-paper.pdf');
 
-let pdfOk = false;
-if (browser) {
+const docs = [
+  { key: false, base: 'RT-final-paper',     note: 'student paper, answer key at the back' },
+  { key: true,  base: 'RT-final-paper-KEY', note: 'grading copy, answers highlighted in place' }
+];
+
+docs.forEach((d) => {
+  d.html = path.join(OUT, d.base + '.html');
+  d.pdf = path.join(OUT, d.base + '.pdf');
+  fs.writeFileSync(d.html, buildHtml(d.key), 'utf8');
+  d.ok = false;
+  if (!browser) return;
   try {
     execFileSync(browser, [
       '--headless', '--disable-gpu', '--no-sandbox', '--no-pdf-header-footer',
-      '--print-to-pdf=' + pdfPath, 'file:///' + htmlPath.replace(/\\/g, '/')
+      '--print-to-pdf=' + d.pdf, 'file:///' + d.html.replace(/\\/g, '/')
     ], { stdio: 'ignore', timeout: 120000 });
-    pdfOk = fs.existsSync(pdfPath) && fs.statSync(pdfPath).size > 1000;
-  } catch (e) { pdfOk = false; }
-}
+    d.ok = fs.existsSync(d.pdf) && fs.statSync(d.pdf).size > 1000;
+  } catch (e) { d.ok = false; }
+});
 
 // ---------------------------------------------------------------- report
 
@@ -277,14 +316,15 @@ laid.forEach((q) => {
 });
 
 console.log('\n  ' + laid.length + ' question paper written to testbank/');
-console.log('    RT-final-paper.pdf       ' + (pdfOk ? 'printable exam + answer key' : 'NOT BUILT'));
-console.log('    RT-final-paper.csv       spreadsheet / import');
-console.log('    RT-final-paper-aiken.txt Moodle, Canvas, Blackboard');
-console.log('    RT-final-paper.html      the source the PDF is rendered from');
+docs.forEach((d) => {
+  console.log('    ' + (d.base + '.pdf').padEnd(24) + ' ' + (d.ok ? d.note : 'NOT BUILT'));
+});
+console.log('    RT-final-paper.csv        spreadsheet / import');
+console.log('    RT-final-paper-aiken.txt  Moodle, Canvas, Blackboard');
 console.log('\n  By chapter: ' + Object.keys(byCh).sort().map((k) => k + ' ' + byCh[k]).join(', '));
 console.log('  From each bank: ' + Object.keys(byBank).map((k) => k + ' ' + byBank[k]).join(', '));
 console.log('  Correct answer: ' + LETTERS.map((l) => l + ' ' + (byLetter[l] || 0)).join(', '));
 console.log('  Distinct facts: ' + new Set(laid.map((q) => q.fact)).size + ' of ' + laid.length +
             '  (from ' + new Set(laid.map((q) => q.origin)).size + ' source questions)');
-if (!pdfOk) console.log('\n  No browser found to render the PDF; open the HTML and print to PDF.');
+if (docs.some((d) => !d.ok)) console.log('\n  No browser found to render the PDF; open the HTML and print to PDF.');
 console.log('');
