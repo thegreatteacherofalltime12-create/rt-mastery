@@ -462,3 +462,13 @@ select option { background: var(--bg-soft); color: var(--text); }
 .area.done { cursor: default; opacity: 0.55; }
 .area.done.ok { border-color: var(--good); color: var(--good); }
 .area.done.bad { border-color: var(--bad); color: var(--bad); opacity: 0.85; }
+
+/* -------------------------------------------------------------- ghost duel */
+/* Nothing about past-you appears until the answer is locked. */
+.ghostline {
+  margin: 10px 0 0; padding: 10px 12px; border-radius: 10px;
+  font-size: 0.85rem; background: var(--card-hi); border: 1px solid var(--line);
+}
+.ghostline.beat { border-color: var(--good); color: var(--good); }
+.ghostline.lost { border-color: var(--line); }
+.ghostline.blind { border-color: var(--bad); color: var(--bad); }

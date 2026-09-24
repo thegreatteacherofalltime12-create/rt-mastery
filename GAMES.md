@@ -274,16 +274,21 @@ nothing records who wrote which lie — so a misconception a student invented
 themselves is the one thing spaced repetition cannot route back to them.
 Throughput is also low, roughly ten questions per period.
 
-**Ghost Duel** *(async head-to-head)* — *"You vs. Maya — Ch. 4, APIE — 7
+**Ghost Duel** *(solo — built)* — *"You vs. Maya — Ch. 4, APIE — 7
 questions."* Same seven for both, played whenever. You lock your answer and
 **only then** does the ghost slide up. Both wrong means nobody scores and it
 becomes a shared Blind Spot, knocked down two Leitner boxes for both.
 
-*Blocked, not merely flawed:* at exactly ten with a full round robin, rank is
-unambiguous, and by week three the bottom two are 0–3 publicly every Monday.
-Blunting the ladder removes the hook, so there is no version that keeps the
-motivation and drops the harm. **The ladder needs redesigning before this is
-buildable.**
+*It was blocked, and the fix was to remove the opponent.* At exactly ten with a
+full round robin, rank is unambiguous, and by week three the bottom two are 0–3
+publicly every Monday — and those are the two who most need to keep playing.
+Blunting the ladder removed the hook, so there was no version that kept the
+motivation and dropped the harm.
+
+**As built, the ghost is your own last attempt.** Same lock-then-reveal moment,
+same Blind Spot, and nobody to come last to. The latest attempt is kept rather
+than the best, so a student can see themselves slip as well as improve — a ghost
+that only ever gets better is a ghost that lies.
 
 **Consult Service** *(peer teaching)* — after missing a question twice a student
 may request a consult anonymously, including the wrong answer they picked. It

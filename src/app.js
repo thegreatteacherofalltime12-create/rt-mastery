@@ -780,6 +780,19 @@
       '<button class="btn sm" data-boss ' + (bu ? '' : 'disabled') + '>' + (bu ? 'Enter the boss fight' : 'Locked') + '</button>' +
       '</div>';
 
+    var gc = ghostCount();
+    h += '<div class="card" style="margin-top:14px">' +
+      '<h3 style="margin-bottom:4px">\uD83D\uDC7B Ghost Duel</h3>' +
+      '<p class="faint" style="margin:0 0 10px">Seven questions against your own last attempt. ' +
+      'Lock your answer, then see what you did last time and how long it took. ' +
+      'Nobody else is involved.</p>' +
+      (gc
+        ? '<p class="faint" style="margin:0 0 10px">You have <b>' + gc + '</b> ghost' +
+          (gc === 1 ? '' : 's') + ' on record.</p>'
+        : '<p class="faint" style="margin:0 0 10px">No ghosts yet \u2014 your first run records them.</p>') +
+      '<button class="btn ghost" data-ghost>Face yourself</button>' +
+      '</div>';
+
     // The Standing Order. The holder is the ONLY name this card ever shows -
     // there is no second place because there is no list.
     var mk = SO.mark;
@@ -1008,6 +1021,31 @@
 
   // The bet. Shown only once an answer is selected, because betting before
   // choosing would measure bravado rather than knowledge.
+  // The reveal. Nothing about past-you is on screen until the answer is
+  // locked, because knowing what you picked last time would just be a hint.
+  function ghostStrip(v) {
+    if (!v.answered) {
+      return ghosts()[v.q.id]
+        ? '<p class="faint center" style="margin:8px 0 0">\uD83D\uDC7B You have met this one before. ' +
+          'Answer, then see what you did last time.</p>'
+        : '<p class="faint center" style="margin:8px 0 0">\uD83D\uDC7B New to you. This run records ' +
+          'the ghost for next time.</p>';
+    }
+    var line = ghostLine(v);
+    var secs = Math.max(1, Math.round((v._ms || 0) / 1000));
+    if (!line) {
+      return '<div class="ghostline">\uD83D\uDC7B Recorded \u2014 ' + secs + 's. ' +
+        'Next time you meet this, you are racing that.</div>';
+    }
+    var cls = v._blind ? 'blind' : v._beatGhost ? 'beat' : 'lost';
+    var verdict = v._blind
+      ? 'You both missed it. That is a blind spot, not bad luck \u2014 back to the bottom of the pile.'
+      : v._beatGhost ? 'You beat it. ' + secs + 's this time.'
+      : 'The ghost holds. ' + secs + 's this time.';
+    return '<div class="ghostline ' + cls + '">\uD83D\uDC7B ' + esc(line) +
+      '<div style="margin-top:4px;font-weight:700">' + esc(verdict) + '</div></div>';
+  }
+
   function certStrip(v) {
     var r = S.run;
     if (v.answered) {
@@ -1092,6 +1130,9 @@
         : '') +
       '</div>';
 
+    // The ghost races a clock, so the clock starts when the question appears.
+    if (r.mode === 'ghost' && !v.answered && !v._askedAt) v._askedAt = Date.now();
+
     h += '<div class="card pad-lg">';
     h += '<span class="tag">' + (ch ? 'Ch ' + ch.number + ' &middot; ' : '') + esc(q.topic) + '</span>';
     h += '<div class="qprompt">' + esc(q.prompt) + '</div>';
@@ -1099,6 +1140,7 @@
     h += renderBody(v);
     h += '</div>';
 
+    if (r.mode === 'ghost') h += ghostStrip(v);
     if (r.mode === 'certainty') h += certStrip(v);
 
     h += closetShelf(v, false);
@@ -1257,6 +1299,28 @@
     return h;
   }
 
+  function ghostResults(r, right) {
+    var h = '<div class="card pad-lg center">' +
+      '<div style="font-size:2.4rem;line-height:1">\uD83D\uDC7B</div>' +
+      (r.raced
+        ? '<div style="font-size:2.2rem;font-weight:800;line-height:1.2">' + r.beat + ' of ' + r.raced + '</div>' +
+          '<p class="dim">times you beat your past self</p>'
+        : '<p class="dim" style="margin:0">All new ground. Every one of these is now recorded, ' +
+          'and next time you will be racing tonight\u2019s you.</p>') +
+      '</div>';
+
+    if (r.blind && r.blind.length) {
+      h += '<div class="card"><h3 style="margin-bottom:4px">Blind spots</h3>' +
+        '<p class="faint" style="margin:0 0 10px">You missed these twice, on different days. ' +
+        'That is a hole rather than a slip, so they have gone back to the bottom of the pile.</p>' +
+        r.blind.map(function (q) { return q.topic; })
+          .filter(function (t, i, a) { return a.indexOf(t) === i; })
+          .map(function (t) { return '<div class="betrow"><span>' + esc(t) + '</span></div>'; })
+          .join('') + '</div>';
+    }
+    return h;
+  }
+
   function certResults(r, right) {
     var used = {};
     CERT_ORDER.forEach(function (k) { used[k] = { n: 0, right: 0 }; });
@@ -1319,6 +1383,7 @@
 
     if (r.mode === 'certainty') h += certResults(r, right);
     if (r.mode === 'standing') h += standingResults(r, right);
+    if (r.mode === 'ghost') h += ghostResults(r, right);
 
     h += '<div class="card pad-lg center">' +
       '<div style="font-size:2.8rem;line-height:1">' + (pct >= 90 ? '&#127942;' : pct >= 70 ? '&#128077;' : '&#128170;') + '</div>' +
@@ -1989,6 +2054,80 @@
       .catch(function () { SO.loaded = true; });
   }
 
+  // ---------------------------------------------------------------- Ghost Duel
+  //
+  // You against your own last attempt. You lock an answer, and only THEN does
+  // the ghost slide up with what you did last time and how long it took.
+  //
+  // The original design put a classmate on the other side of this, and that is
+  // exactly why it never shipped: at ten students a full round robin makes the
+  // bottom two nought-and-three in public every Monday, and those are the two
+  // who most need to keep playing. Racing your own past self keeps the whole
+  // reveal and has nobody to come last to.
+  //
+  // The mechanic worth keeping from the original is the BLIND SPOT: if you and
+  // past-you both got it wrong, that is not bad luck, it is a hole. It goes
+  // back to the bottom of the pile and gets named at the end.
+
+  var GHOST_SIZE = 7;
+
+  function ghosts() {
+    S.stats.ghosts = S.stats.ghosts || {};
+    return S.stats.ghosts;
+  }
+
+  function ghostCount() { return Object.keys(ghosts()).length; }
+
+  function startGhostDuel() {
+    var g = ghosts();
+    var all = allQuestions();
+    // Questions that already have a ghost come first - those are the ones with
+    // somebody to race. The rest of the set records a ghost for next time.
+    var haunted = shuffle(all.filter(function (q) { return g[q.id]; }));
+    var fresh = shuffle(all.filter(function (q) { return !g[q.id]; }));
+    var picked = haunted.concat(fresh).slice(0, Math.min(GHOST_SIZE, all.length));
+    if (!picked.length) return;
+
+    S.run = {
+      mode: 'ghost',
+      title: 'Ghost Duel',
+      views: shuffle(picked).map(function (q) { return prep(serve(q, levelOf(q.chapter))); }),
+      idx: 0, streak: 0, xpStart: S.stats.xp,
+      deadline: null, hideFeedback: false, passMark: 0,
+      beat: 0, raced: 0, blind: []
+    };
+    S.run.views.forEach(function (v) { v._askedAt = 0; });
+    S.screen = 'play';
+    render();
+  }
+
+  // What past-you did, in a sentence.
+  function ghostLine(v) {
+    // Read the ghost CAPTURED before this answer, never the live store:
+    // recordGhost has already overwritten it by the time this renders, so
+    // reading the store made a brand new question report “last time you got
+    // this wrong” about the answer just given.
+    var was = v._ghost;
+    if (!was) return null;
+    var secs = Math.max(1, Math.round((was.ms || 0) / 1000));
+    return (was.correct ? 'Last time you got this right' : 'Last time you got this wrong') +
+           ' in ' + secs + 's' + (was.pickedText ? ' \u2014 you chose \u201c' + was.pickedText + '\u201d' : '') + '.';
+  }
+
+  // Record this attempt so it becomes the ghost next time. The LATEST attempt
+  // is kept rather than the best, so a student can see themselves slip as well
+  // as improve - a ghost that only ever gets better is a ghost that lies.
+  function recordGhost(v, ms) {
+    var text = null;
+    if ((v.type === 'mc' || v.type === 'scenario') && v.opts && v.picked !== null && v.picked !== undefined) {
+      text = (v.opts[v.picked] || {}).t || null;
+      if (text && text.length > 70) text = text.slice(0, 67) + '\u2026';
+    }
+    ghosts()[v.q.id] = {
+      correct: !!v.correct, ms: ms, pickedText: text, at: new Date().toISOString()
+    };
+  }
+
   function startStandingOrder() {
     var pool = allQuestions();
     if (pool.length < SO_SIZE) return;
@@ -2172,11 +2311,36 @@
     v.correct = grade(v);
     v.answered = true;
 
+    if (r.mode === 'ghost') {
+      var ms = v._askedAt ? Date.now() - v._askedAt : 0;
+      var was = ghosts()[v.q.id];
+      v._ghost = was || null;
+      if (was) {
+        r.raced++;
+        // Beating the ghost means getting it right when they did not, or
+        // getting it right faster than they did.
+        var better = (v.correct && !was.correct) ||
+                     (v.correct && was.correct && ms > 0 && ms < was.ms);
+        if (better) r.beat++;
+        v._beatGhost = better;
+        // Both of you wrong is not bad luck, it is a hole.
+        if (!v.correct && !was.correct) {
+          v._blind = true;
+          r.blind.push(v.q);
+          var rr = rec(v.q.id, v.q._level || 1);
+          rr.box = 0;
+          rr.blindSpot = true;
+        }
+      }
+      v._ms = ms;
+      recordGhost(v, ms);
+    }
+
     // Spaced repetition applies to practice AND to Three Certainties. The flag
     // is about whether a run feeds the Leitner boxes, not about the word
     // 'practice' - reading it as a mode name would have silently disabled the
     // whole punishment mechanic here, which is the mechanic.
-    var feedsBoxes = r.mode === 'practice' || r.mode === 'certainty';
+    var feedsBoxes = r.mode === 'practice' || r.mode === 'certainty' || r.mode === 'ghost';
     applyResult(v.q.id, v.correct, feedsBoxes, v.q._level || 1, v._protected);
 
     if (r.mode === 'certainty' && v.conf) {
@@ -2464,6 +2628,9 @@
         save(); render();
       };
     });
+
+    var gd = app.querySelector('[data-ghost]');
+    if (gd) gd.onclick = startGhostDuel;
 
     var so = app.querySelector('[data-standing]');
     if (so) so.onclick = startStandingOrder;
