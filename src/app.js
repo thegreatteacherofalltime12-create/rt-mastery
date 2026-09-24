@@ -18,9 +18,9 @@
   // Difficulty is a property of how a question is SERVED, not of the question.
   // The same item is worth more the harder the presentation.
   var LEVELS = {
-    1: { name: 'Recognise', opts: 4, xp: 10, seconds: 5, blurb: 'Four options' },
-    2: { name: 'Discriminate', opts: 6, xp: 15, seconds: 8, blurb: 'Six options' },
-    3: { name: 'Recall', opts: 0, xp: 25, seconds: 12, blurb: 'No options — type it' }
+    1: { name: 'Recognise', xp: 10, blurb: 'Four options' },
+    2: { name: 'Discriminate', xp: 15, blurb: 'Six options' },
+    3: { name: 'Recall', xp: 25, blurb: 'No options — type it' }
   };
   var API = '/api';
 
@@ -375,40 +375,45 @@
   function syncEnabled() { return !!(S.profile.name && S.profile.classCode); }
 
   // One batched write per finished round keeps us inside Firebase's free tier.
+  // Every field here has a reader on the dashboard; anything write-only was a
+  // document write that bought nothing. Nor is an identical body ever sent
+  // twice - backing out of the live screen without playing used to cost a write.
+  var lastSync = '';
   function syncProgress(extra) {
     if (!syncEnabled()) return Promise.resolve({ skipped: true });
     var o = overall();
-    var perChapter = {};
-    CHAPTERS.forEach(function (c) {
-      var lv = levelOf(c.id);
-      var m = chapterMastery(c, lv);
-      perChapter[c.id] = { done: m.done, total: m.total, level: lv };
-    });
     var levelSum = CHAPTERS.reduce(function (n, c) { return n + levelOf(c.id); }, 0);
     var weak = weakestTopics(6).map(function (w) { return w.topic + ' (' + w.pct + '%)'; });
+    var runs = S.stats.examRuns || [];
 
     var body = {
       name: S.profile.name,
       classCode: S.profile.classCode,
       xp: S.stats.xp,
       sessions: S.stats.sessions,
-      bestStreak: S.stats.bestStreak,
       mastered: o.done,
       totalQuestions: o.total,
-      chapters: perChapter,
       avgLevel: CHAPTERS.length ? Math.round((levelSum / CHAPTERS.length) * 10) / 10 : 1,
       weakTopics: weak,
-      examRuns: (S.stats.examRuns || []).slice(-10),
-      updatedAt: new Date().toISOString()
+      bestExam: runs.reduce(function (m, r) { return Math.max(m, r.pct || 0); }, 0),
+      examRuns: runs.slice(-3)
     };
-    if (extra) body.event = extra;
+
+    // The event kind is not sent - nothing reads it - but it does distinguish
+    // two otherwise identical bodies, so it belongs in the signature.
+    var json = JSON.stringify(body);
+    var sig = json + '|' + ((extra && extra.type) || '');
+    if (sig === lastSync) return Promise.resolve({ skipped: true });
 
     return fetch(API + '/progress', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body)
-    }).then(function (r) { return r.ok ? r.json() : { error: r.status }; })
-      .catch(function () { return { error: 'offline' }; });
+      body: json
+    }).then(function (r) {
+      if (!r.ok) return { error: r.status };
+      lastSync = sig;          // only a write that landed may suppress the next one
+      return r.json();
+    }).catch(function () { return { error: 'offline' }; });
   }
 
   function weakestTopics(n) {
@@ -449,7 +454,6 @@
   }
 
   function topbar(title, backTo) {
-    var o = overall();
     return '<div class="topbar">' +
       (backTo ? '<button class="iconbtn" data-go="' + backTo + '">&larr;</button>' : '') +
       '<strong style="font-size:1rem">' + esc(title) + '</strong>' +
@@ -830,14 +834,14 @@
   // Buy Time. One shared clock on the projector; this phone serves its own
   // questions at this student's own level. A miss costs the room nothing.
 
-  var LIVE = { code: '', room: null, poll: null, view: null, feedback: '', busy: false, misses: {} };
+  var LIVE = { code: '', room: null, poll: null, view: null, feedback: '', busy: false, misses: {}, lastJson: '' };
 
   function liveApi(method, path, body) {
     var opt = { method: method, headers: { 'Content-Type': 'application/json' } };
     if (body) opt.body = JSON.stringify(body);
     return fetch(path, opt)
-      .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, j: j }; }); })
-      .catch(function () { return { ok: false, j: { error: 'offline' } }; });
+      .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, status: r.status, j: j }; }); })
+      .catch(function () { return { ok: false, status: 0, j: { error: 'offline' } }; });
   }
 
   function liveEvent(type, extra) {
@@ -932,13 +936,37 @@
     render();
   }
 
+  function stopLivePolling() {
+    if (LIVE.poll) { clearInterval(LIVE.poll); LIVE.poll = null; }
+  }
+
+  // Every poll that misses the Worker's cache is a billed Firestore read, so
+  // the loop has to have a way to end. A finished round cannot change again.
   function startLivePolling() {
-    if (LIVE.poll) clearInterval(LIVE.poll);
+    stopLivePolling();
+    LIVE.lastJson = '';
     LIVE.poll = setInterval(function () {
-      if (S.screen !== 'live') { clearInterval(LIVE.poll); LIVE.poll = null; return; }
+      if (S.screen !== 'live') { stopLivePolling(); return; }
       liveApi('GET', API + '/room?classCode=' + encodeURIComponent(S.profile.classCode) + '&code=' + LIVE.code)
         .then(function (res) {
+          // Gone (404) or past its three-hour life (410): it will never answer
+          // differently. A network blip has status 0 and is worth retrying.
+          if (res.status === 404 || res.status === 410) { stopLivePolling(); return; }
           if (!res.ok) return;
+
+          // An unchanged room means an unchanged screen, and render() replaces
+          // the whole body - which would destroy the write-in box mid-word every
+          // four seconds. The ALL HANDS banner is the one thing that closes on
+          // the clock rather than in the document, so its open/shut state rides
+          // in the signature: that buys one render when it opens and one when it
+          // shuts, instead of one every tick until the round ends.
+          var rm = res.j.room;
+          var ahOpen = rm.allHands && !rm.allHands.solved &&
+                       new Date(rm.allHands.endsAt).getTime() > Date.now();
+          var j = JSON.stringify(rm) + (ahOpen ? '|ah' : '');
+          if (j === LIVE.lastJson) return;
+          LIVE.lastJson = j;
+
           var wasRunning = LIVE.room && LIVE.room.state === 'running';
           LIVE.room = res.j.room;
           if (!wasRunning && LIVE.room.state === 'running' && !LIVE.view) serveNextLive();
@@ -952,6 +980,7 @@
             LIVE.feedback = '';
           }
           render();
+          if (LIVE.room.state === 'ended' || LIVE.room.state === 'won') stopLivePolling();
         });
     }, 4000);
   }
@@ -1214,20 +1243,30 @@
       };
     });
 
-    // question interactions
+    // Question interactions. A practice question and a live one are the same
+    // six types on the same markup, so they get one set of handlers that asks
+    // at click time which run it belongs to. Two parallel sets is how the live
+    // round used to die on a write-in question: S.run is null there.
+    function curView() {
+      return S.screen === 'live' ? LIVE.view : (S.run && S.run.views[S.run.idx]);
+    }
+    function submitCur() {
+      return S.screen === 'live' ? liveAnswer() : answerCurrent();
+    }
+
     app.querySelectorAll('[data-pick]').forEach(function (b) {
       b.onclick = function () {
-        var v = S.run.views[S.run.idx];
-        if (v.answered) return;
+        var v = curView();
+        if (!v || v.answered) return;
         v.picked = parseInt(b.getAttribute('data-pick'), 10);
-        answerCurrent();
+        submitCur();
       };
     });
 
     app.querySelectorAll('[data-toggle]').forEach(function (b) {
       b.onclick = function () {
-        var v = S.run.views[S.run.idx];
-        if (v.answered) return;
+        var v = curView();
+        if (!v || v.answered) return;
         var i = parseInt(b.getAttribute('data-toggle'), 10);
         v.sel[i] = !v.sel[i];
         render();
@@ -1236,33 +1275,30 @@
 
     app.querySelectorAll('[data-match]').forEach(function (sel) {
       sel.onchange = function () {
-        var v = S.run.views[S.run.idx];
+        var v = curView();
+        if (!v) return;
         v.sel[parseInt(sel.getAttribute('data-match'), 10)] = sel.value;
       };
     });
 
-    app.querySelectorAll('[data-up]').forEach(function (b) {
+    function nudge(b, attr, step) {
       b.onclick = function () {
-        var v = S.run.views[S.run.idx];
-        var i = parseInt(b.getAttribute('data-up'), 10);
-        var t = v.order[i - 1]; v.order[i - 1] = v.order[i]; v.order[i] = t;
+        var v = curView();
+        if (!v) return;
+        var i = parseInt(b.getAttribute(attr), 10);
+        var t = v.order[i + step]; v.order[i + step] = v.order[i]; v.order[i] = t;
         render();
       };
-    });
-    app.querySelectorAll('[data-down]').forEach(function (b) {
-      b.onclick = function () {
-        var v = S.run.views[S.run.idx];
-        var i = parseInt(b.getAttribute('data-down'), 10);
-        var t = v.order[i + 1]; v.order[i + 1] = v.order[i]; v.order[i] = t;
-        render();
-      };
-    });
+    }
+    app.querySelectorAll('[data-up]').forEach(function (b) { nudge(b, 'data-up', -1); });
+    app.querySelectorAll('[data-down]').forEach(function (b) { nudge(b, 'data-down', 1); });
 
     var fill = app.querySelector('#fillin');
     if (fill) {
-      fill.oninput = function () { S.run.views[S.run.idx].value = fill.value; };
-      fill.onkeydown = function (e) { if (e.key === 'Enter') answerCurrent(); };
-      if (!S.run.views[S.run.idx].answered) fill.focus();
+      var fv = curView();
+      fill.oninput = function () { var v = curView(); if (v) v.value = fill.value; };
+      fill.onkeydown = function (e) { if (e.key === 'Enter') submitCur(); };
+      if (fv && !fv.answered) fill.focus();
     }
 
     var sub = app.querySelector('[data-submit]');
@@ -1285,8 +1321,12 @@
     if (lj) lj.onclick = function () {
       var code = (app.querySelector('#roomcode').value || '').trim().toUpperCase();
       if (!/^[A-Z]{4}$/.test(code)) { LIVE.feedback = 'That needs to be four letters.'; render(); return; }
+      // An impatient second tap on a cold start would write the player twice.
+      if (LIVE.busy) return;
+      LIVE.busy = true;
       LIVE.code = code; LIVE.misses = {};
       liveEvent('join').then(function (res) {
+        LIVE.busy = false;
         if (!res.ok) { LIVE.feedback = res.j.error === 'room not found' ? 'No round with that code yet.' : 'Could not join.'; render(); return; }
         LIVE.room = res.j.room; LIVE.feedback = '';
         if (LIVE.room.state === 'running') serveNextLive();
@@ -1294,41 +1334,20 @@
       });
     };
 
-    app.querySelectorAll('[data-pick]').forEach(function (b) {
-      if (S.screen !== 'live') return;
-      b.onclick = function () {
-        if (!LIVE.view || LIVE.view.answered) return;
-        LIVE.view.picked = parseInt(b.getAttribute('data-pick'), 10);
-        liveAnswer();
-      };
-    });
-    if (S.screen === 'live' && LIVE.view) {
-      app.querySelectorAll('[data-toggle]').forEach(function (b) {
-        b.onclick = function () {
-          if (LIVE.view.answered) return;
-          var i = parseInt(b.getAttribute('data-toggle'), 10);
-          LIVE.view.sel[i] = !LIVE.view.sel[i]; render();
-        };
-      });
-      app.querySelectorAll('[data-match]').forEach(function (sel) {
-        sel.onchange = function () { LIVE.view.sel[parseInt(sel.getAttribute('data-match'), 10)] = sel.value; };
-      });
-      var lf = app.querySelector('#fillin');
-      if (lf) {
-        lf.oninput = function () { LIVE.view.value = lf.value; };
-        lf.onkeydown = function (e) { if (e.key === 'Enter') liveAnswer(); };
-        if (!LIVE.view.answered) lf.focus();
-      }
-    }
     var ls = app.querySelector('[data-livesubmit]'); if (ls) ls.onclick = liveAnswer;
     var ln = app.querySelector('[data-livenext]'); if (ln) ln.onclick = liveNext;
-    var lx = app.querySelector('[data-liveexit]') || app.querySelector('[data-liveexit2]');
-    if (lx) lx.onclick = function () {
-      if (LIVE.poll) { clearInterval(LIVE.poll); LIVE.poll = null; }
-      LIVE.room = null; LIVE.view = null; LIVE.feedback = '';
+    // Both the topbar arrow and the end screen's full-width button exist at the
+    // same time, so binding only the first one left the obvious button dead -
+    // and a student who cannot leave is a student still polling.
+    function exitLive() {
+      stopLivePolling();
+      LIVE.room = null; LIVE.view = null; LIVE.feedback = ''; LIVE.lastJson = '';
       S.screen = 'map'; render();
       if (syncEnabled()) syncProgress({ type: 'live' });
-    };
+    }
+    app.querySelectorAll('[data-liveexit],[data-liveexit2]').forEach(function (b) {
+      b.onclick = exitLive;
+    });
 
     var reset = app.querySelector('[data-reset]');
     if (reset) reset.onclick = function () {

@@ -169,19 +169,20 @@ async function handleProgress(request, env) {
   const studentId = slug(name);
   if (!studentId) return json({ error: 'name must contain letters or numbers' }, 400);
 
+  // Only what the dashboard renders. bestStreak, per-chapter counts and the
+  // last event were written on every sync and read by nobody. bestExam is sent
+  // precomputed so the run history can stay short.
   const doc = {
     name,
     classCode,
     xp: Number(body.xp) || 0,
     sessions: Number(body.sessions) || 0,
-    bestStreak: Number(body.bestStreak) || 0,
     mastered: Number(body.mastered) || 0,
     totalQuestions: Number(body.totalQuestions) || 0,
-    chapters: body.chapters && typeof body.chapters === 'object' ? body.chapters : {},
     avgLevel: Number(body.avgLevel) || 1,
     weakTopics: Array.isArray(body.weakTopics) ? body.weakTopics.slice(0, 10).map(String) : [],
-    examRuns: Array.isArray(body.examRuns) ? body.examRuns.slice(-10) : [],
-    lastEvent: body.event && typeof body.event === 'object' ? body.event : null,
+    bestExam: Number(body.bestExam) || 0,
+    examRuns: Array.isArray(body.examRuns) ? body.examRuns.slice(-3) : [],
     updatedAt: new Date().toISOString()
   };
 
@@ -200,8 +201,14 @@ async function handleProgress(request, env) {
     const text = await res.text();
     return json({ error: 'firestore write failed', detail: text.slice(0, 300) }, 502);
   }
+  if (classCache.key === classCode) classCache = { key: null, at: 0, value: null };
   return json({ ok: true, studentId });
 }
+
+// A roster LIST is billed one read PER STUDENT, and Refresh is a button a human
+// leans on. The probe sits below the PIN check, never above it.
+const CLASS_CACHE_MS = 20000;
+let classCache = { key: null, at: 0, value: null };
 
 async function handleClass(url, env) {
   const code = slug(url.searchParams.get('code'));
@@ -209,6 +216,10 @@ async function handleClass(url, env) {
   if (!code) return json({ error: 'code is required' }, 400);
   if (!env.INSTRUCTOR_PIN || pin !== env.INSTRUCTOR_PIN) {
     return json({ error: 'invalid pin' }, 401);
+  }
+
+  if (classCache.key === code && Date.now() - classCache.at < CLASS_CACHE_MS) {
+    return json(classCache.value);
   }
 
   const token = await getAccessToken(env);
@@ -237,7 +248,9 @@ async function handleClass(url, env) {
     .sort((a, b) => b.students - a.students)
     .slice(0, 12);
 
-  return json({ code, count: students.length, students, classWeak });
+  const payload = { code, count: students.length, students, classWeak };
+  classCache = { key: code, at: Date.now(), value: payload };
+  return json(payload);
 }
 
 // Students type their own names, so duplicates and typos are inevitable.
@@ -264,10 +277,15 @@ async function handleDelete(url, env) {
       const text = await res.text();
       return json({ error: 'delete failed', detail: text.slice(0, 300) }, 502);
     }
+    if (classCache.key === code) classCache = { key: null, at: 0, value: null };
     return json({ ok: true, deleted: [id] });
   }
 
-  // the whole class
+  // The whole class, behind an explicit flag. Without one, a DELETE that simply
+  // forgot its id would erase the roster and answer 200.
+  if (url.searchParams.get('all') !== '1') {
+    return json({ error: 'id is required (add all=1 to reset the whole class)' }, 400);
+  }
   const list = await fetch(`${FS}/${base}?pageSize=300`, {
     headers: { Authorization: `Bearer ${token}` }
   });
@@ -284,6 +302,7 @@ async function handleDelete(url, env) {
     });
     if (res.ok) deleted.push(d.name.split('/').pop());
   }
+  if (classCache.key === code) classCache = { key: null, at: 0, value: null };
   return json({ ok: true, deleted, count: deleted.length });
 }
 
@@ -315,6 +334,8 @@ const MAX_SHARE = 0.6;                    // no one student may clear more than 
 // deadline, so a couple of seconds of staleness changes nothing on screen.
 const ROOM_CACHE_MS = 2500;
 
+const TERMINAL_CACHE_MS = 60000;         // a finished round cannot change again
+
 let roomCache = { key: null, at: 0, value: null };
 
 function roomPath(env, classCode, roomCode) {
@@ -325,14 +346,21 @@ function cacheKey(classCode, roomCode) { return classCode + '/' + roomCode; }
 
 async function readRoom(env, classCode, roomCode, maxAgeMs) {
   const key = cacheKey(classCode, roomCode);
-  const age = maxAgeMs === undefined ? ROOM_CACHE_MS : maxAgeMs;
+  let age = maxAgeMs === undefined ? ROOM_CACHE_MS : maxAgeMs;
+
+  // Only the DEFAULT is relaxed for a finished round. A caller that explicitly
+  // asked for a fresh read is about to mutate the room and still gets one.
+  const cached = roomCache.key === key ? roomCache.value : null;
+  if (maxAgeMs === undefined && cached && (cached.state === 'ended' || cached.state === 'won')) {
+    age = TERMINAL_CACHE_MS;
+  }
   if (roomCache.key === key && Date.now() - roomCache.at < age) return roomCache.value;
 
   const token = await getAccessToken(env);
   const res = await fetch(`${FS}/${roomPath(env, classCode, roomCode)}`, {
     headers: { Authorization: `Bearer ${token}` }
   });
-  if (res.status === 404) return null;
+  if (res.status === 404) { roomCache = { key: key, at: Date.now(), value: null }; return null; }
   if (!res.ok) throw new Error('room read failed: ' + res.status);
   const doc = docToObject(await res.json());
   roomCache = { key: key, at: Date.now(), value: doc };
@@ -385,7 +413,7 @@ async function commitRoom(env, classCode, roomCode, { set, inc, local }) {
   const write = { update: { name: doc, fields }, updateMask: { fieldPaths: mask } };
   if (transforms.length) write.updateTransforms = transforms;
 
-  const res = await fetch(`${FS.replace(/\/v1$/, '/v1')}/projects/${env.FIREBASE_PROJECT_ID}/databases/(default)/documents:commit`, {
+  const res = await fetch(`${FS}/projects/${env.FIREBASE_PROJECT_ID}/databases/(default)/documents:commit`, {
     method: 'POST',
     headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({ writes: [write] })
@@ -404,8 +432,8 @@ async function commitRoom(env, classCode, roomCode, { set, inc, local }) {
   }
 }
 
-// Replacing a whole room (create, or a structural change) is rare enough to
-// stay a plain PATCH.
+// Creating a room is the one place a whole-document PATCH is right: there is
+// nothing there yet to clobber. Every later change goes through commitRoom.
 async function writeRoom(env, classCode, roomCode, room) {
   const token = await getAccessToken(env);
   const fields = {};
@@ -476,31 +504,48 @@ async function handleRoomControl(request, env) {
 
   const roomCode = String(body.code || '').toUpperCase();
   if (!/^[A-Z]{4}$/.test(roomCode)) return json({ error: 'bad room code' }, 400);
-  const room = await readRoom(env, classCode, roomCode, 0);
+  // Reject a bad action before it costs a read.
+  if (!['start', 'allhands', 'extend', 'end'].includes(action)) {
+    return json({ error: 'unknown action' }, 400);
+  }
+
+  // A cached read is safe now that every branch below writes through
+  // commitRoom: a masked write touches only the fields it names, so a student's
+  // clear landing between this read and that write is no longer erased by it.
+  const room = await readRoom(env, classCode, roomCode);
   if (!room) return json({ error: 'room not found' }, 404);
 
+  const set = {};
+  const inc = {};
+
   if (action === 'start') {
-    room.state = 'running';
-    room.endsAtMs = Date.now() + room.startMinutes * 60000;
-    room.startedAt = new Date().toISOString();
+    room.state = set.state = 'running';
+    room.endsAtMs = set.endsAtMs = Date.now() + room.startMinutes * 60000;
   } else if (action === 'allhands') {
     const pool = room.pool || [];
     if (!pool.length) return json({ error: 'the pool is empty' }, 400);
     const pick = pool[0];
-    room.allHands = {
+    room.allHands = set.allHands = {
       qid: pick.qid, topic: pick.topic, chapter: pick.chapter,
       endsAt: new Date(Date.now() + 35000).toISOString(), solved: false
     };
   } else if (action === 'extend') {
     const add = Math.min(300, Math.max(10, Number(body.seconds) || 60));
-    room.endsAtMs = Math.max(room.endsAtMs || 0, Date.now()) + add * 1000;
-  } else if (action === 'end') {
-    room.state = 'ended';
+    // While the clock is still live, +60 has to be an increment, or it would
+    // wipe the seconds the class bought during the round trip. Once it has run
+    // out there is nothing left to add to, so set a fresh deadline instead -
+    // that clamp is the whole reason the button is usable when it is reached for.
+    if ((room.endsAtMs || 0) > Date.now()) {
+      inc.endsAtMs = add * 1000;
+      room.endsAtMs = room.endsAtMs + add * 1000;
+    } else {
+      room.endsAtMs = set.endsAtMs = Date.now() + add * 1000;
+    }
   } else {
-    return json({ error: 'unknown action' }, 400);
+    room.state = set.state = 'ended';
   }
 
-  await writeRoom(env, classCode, roomCode, room);
+  await commitRoom(env, classCode, roomCode, { set, inc, local: room });
   return json({ ok: true, room: publicRoom(room) });
 }
 
@@ -513,7 +558,7 @@ async function handleRoomState(url, env) {
   if (Date.now() - new Date(room.createdAt || 0).getTime() > ROOM_TTL_MS) {
     return json({ error: 'room expired' }, 410);
   }
-  return json({ ok: true, room: publicRoom(room), now: new Date().toISOString() });
+  return json({ ok: true, room: publicRoom(room) });
 }
 
 async function handleRoomEvent(request, env) {

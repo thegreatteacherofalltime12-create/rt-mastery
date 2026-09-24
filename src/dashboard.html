@@ -116,7 +116,7 @@
       s.map(function (x) {
         var pct = x.totalQuestions ? Math.round(100 * (x.mastered || 0) / x.totalQuestions) : 0;
         var stale = !x.updatedAt || (Date.now() - new Date(x.updatedAt)) > 7 * 86400000;
-        var best = (x.examRuns || []).reduce(function (m, r) { return Math.max(m, r.pct || 0); }, 0);
+        var best = x.bestExam || 0;
         return '<tr class="' + (stale ? 'stale' : '') + '">' +
           '<td class="who">' + esc(x.name) + '</td>' +
           '<td class="num"><b>' + (x.avgLevel || 1) + '</b></td>' +

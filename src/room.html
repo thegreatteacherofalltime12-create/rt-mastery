@@ -54,7 +54,7 @@
 (function () {
   'use strict';
   var app = document.getElementById('app');
-  var S = { classCode: '', pin: '', room: null, err: '', poll: null };
+  var S = { classCode: '', pin: '', room: null, err: '', poll: null, lastJson: '' };
 
   function esc(s) {
     return String(s == null ? '' : s)
@@ -71,8 +71,8 @@
     var opt = { method: method, headers: { 'Content-Type': 'application/json' } };
     if (body) opt.body = JSON.stringify(body);
     return fetch(path, opt).then(function (r) {
-      return r.json().then(function (j) { return { ok: r.ok, j: j }; });
-    });
+      return r.json().then(function (j) { return { ok: r.ok, status: r.status, j: j }; });
+    }).catch(function () { return { ok: false, status: 0, j: { error: 'offline' } }; });
   }
 
   function control(action, extra) {
@@ -80,17 +80,42 @@
     if (S.room) body.code = S.room.code;
     return api('POST', '/api/room', body).then(function (res) {
       if (!res.ok) { S.err = res.j.error || 'failed'; render(); return; }
-      S.err = ''; S.room = res.j.room; render(); startPolling();
+      S.err = ''; S.room = res.j.room; S.lastJson = ''; render(); startPolling();
     });
   }
 
+  // Each poll that misses the Worker's 2.5s cache is a billed Firestore read,
+  // and the projector is usually the last tab still open. A finished round has
+  // nothing left to report, so the loop ends with it.
+  function stopPolling() {
+    if (S.poll) { clearInterval(S.poll); S.poll = null; }
+  }
+  function over(r) { return !!r && (r.state === 'ended' || r.state === 'won'); }
+
   function poll() {
-    if (!S.room) return;
+    if (!S.room || over(S.room)) { stopPolling(); return; }
     api('GET', '/api/room?classCode=' + encodeURIComponent(S.classCode) + '&code=' + S.room.code)
-      .then(function (res) { if (res.ok) { S.room = res.j.room; render(); } });
+      .then(function (res) {
+        if (res.status === 404 || res.status === 410) { stopPolling(); return; }
+        if (!res.ok) return;
+
+        // An unchanged room means an unchanged screen. render() replaces the whole
+        // body, so rebuilding every tick can pull a control button out from under
+        // the instructor's finger. The ALL HANDS banner closes on the clock rather
+        // than in the document, so its state rides in the signature - one render
+        // when it opens, one when it shuts.
+        var rm = res.j.room;
+        var ahOpen = rm.allHands && !rm.allHands.solved &&
+                     new Date(rm.allHands.endsAt).getTime() > Date.now();
+        var j = JSON.stringify(rm) + (ahOpen ? '|ah' : '');
+        S.room = rm;
+        if (j !== S.lastJson) { S.lastJson = j; render(); }
+        if (over(S.room)) stopPolling();
+      });
   }
   function startPolling() {
-    if (S.poll) clearInterval(S.poll);
+    stopPolling();
+    if (over(S.room)) return;
     S.poll = setInterval(poll, 4000);
     if (!window._tick) window._tick = setInterval(paintClock, 250);
   }
@@ -148,7 +173,7 @@
     var pct = Math.min(100, 100 * (r.cleared || 0) / (r.target || 1));
     var h = '';
 
-    if (r.allHands && !r.allHands.solved) {
+    if (r.allHands && !r.allHands.solved && new Date(r.allHands.endsAt).getTime() > Date.now()) {
       h += '<div class="allhands">&#9995; ALL HANDS &mdash; ' + esc(r.allHands.topic) +
         '<div style="font-size:0.9rem;font-weight:600;margin-top:4px">on every phone now &middot; any correct answer buys 60 seconds</div></div>';
     }
@@ -234,10 +259,15 @@
   } catch (e) {}
 
   // If the clock runs out, close the round so the projector stops counting down.
+  // The in-flight flag matters: a slow cold start would otherwise fire end again
+  // every two seconds while the first one is still travelling.
+  var ending = false;
   setInterval(function () {
+    if (ending) return;
     if (S.room && S.room.state === 'running' && S.room.endsAtMs &&
         S.room.endsAtMs < Date.now() - 1500) {
-      control('end');
+      ending = true;
+      control('end').then(function () { ending = false; });
     }
   }, 2000);
 

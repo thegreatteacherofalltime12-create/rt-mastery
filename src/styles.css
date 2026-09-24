@@ -212,6 +212,9 @@ p { margin: 0 0 12px; }
   color: var(--accent-lit); margin-bottom: 11px;
 }
 :root[data-theme="light"] .tag { color: var(--accent); }
+/* A question pulled from the room's pool is worth double time. That is the one
+   tag on the live screen a student needs to notice. */
+.tag.star { background: var(--bad-soft); border-color: var(--bad); color: var(--bad); }
 
 .qprompt { font-size: 1.12rem; font-weight: 600; line-height: 1.45; margin-bottom: 16px; }
 
@@ -379,4 +382,3 @@ select {
 }
 select:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
 select option { background: var(--bg-soft); color: var(--text); }
-.matchrow select { flex: 1; min-width: 0; }
