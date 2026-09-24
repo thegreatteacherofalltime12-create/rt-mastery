@@ -1,0 +1,539 @@
+{
+  "note": "Frozen pre-seam wire shape. Every key here is read by a bundle already on a student phone. Delete this file and the LEGACY_FLAT block together, never separately.",
+  "steps": [
+    {
+      "step": "create",
+      "room": {
+        "code": "<CODE>",
+        "state": "lobby",
+        "target": 6,
+        "startMinutes": 5,
+        "cleared": 0,
+        "endsAtMs": null,
+        "pool": [],
+        "allHands": null,
+        "players": [],
+        "perStudentCap": 4
+      }
+    },
+    {
+      "step": "join:avery",
+      "room": {
+        "code": "<CODE>",
+        "state": "lobby",
+        "target": 6,
+        "startMinutes": 5,
+        "cleared": 0,
+        "endsAtMs": null,
+        "pool": [],
+        "allHands": null,
+        "players": [
+          {
+            "cleared": 0,
+            "id": "avery-diaz",
+            "name": "Avery Diaz"
+          }
+        ],
+        "perStudentCap": 4
+      }
+    },
+    {
+      "step": "join:sam",
+      "room": {
+        "code": "<CODE>",
+        "state": "lobby",
+        "target": 6,
+        "startMinutes": 5,
+        "cleared": 0,
+        "endsAtMs": null,
+        "pool": [],
+        "allHands": null,
+        "players": [
+          {
+            "cleared": 0,
+            "id": "avery-diaz",
+            "name": "Avery Diaz"
+          },
+          {
+            "cleared": 0,
+            "id": "sam-okafor",
+            "name": "Sam Okafor"
+          }
+        ],
+        "perStudentCap": 4
+      }
+    },
+    {
+      "step": "join:avery-again",
+      "room": {
+        "code": "<CODE>",
+        "state": "lobby",
+        "target": 6,
+        "startMinutes": 5,
+        "cleared": 0,
+        "endsAtMs": null,
+        "pool": [],
+        "allHands": null,
+        "players": [
+          {
+            "cleared": 0,
+            "id": "avery-diaz",
+            "name": "Avery Diaz"
+          },
+          {
+            "cleared": 0,
+            "id": "sam-okafor",
+            "name": "Sam Okafor"
+          }
+        ],
+        "perStudentCap": 4
+      }
+    },
+    {
+      "step": "start",
+      "room": {
+        "code": "<CODE>",
+        "state": "running",
+        "target": 6,
+        "startMinutes": 5,
+        "cleared": 0,
+        "endsAtMs": "<+300s>",
+        "pool": [],
+        "allHands": null,
+        "players": [
+          {
+            "cleared": 0,
+            "id": "avery-diaz",
+            "name": "Avery Diaz"
+          },
+          {
+            "cleared": 0,
+            "id": "sam-okafor",
+            "name": "Sam Okafor"
+          }
+        ],
+        "perStudentCap": 4
+      }
+    },
+    {
+      "step": "miss:avery",
+      "room": {
+        "code": "<CODE>",
+        "state": "running",
+        "target": 6,
+        "startMinutes": 5,
+        "cleared": 0,
+        "endsAtMs": "<+300s>",
+        "pool": [
+          {
+            "chapter": "ch2",
+            "qid": "ch2-01",
+            "topic": "Gestalt"
+          }
+        ],
+        "allHands": null,
+        "players": [
+          {
+            "cleared": 0,
+            "id": "avery-diaz",
+            "name": "Avery Diaz"
+          },
+          {
+            "cleared": 0,
+            "id": "sam-okafor",
+            "name": "Sam Okafor"
+          }
+        ],
+        "perStudentCap": 4
+      }
+    },
+    {
+      "step": "miss:duplicate",
+      "room": {
+        "code": "<CODE>",
+        "state": "running",
+        "target": 6,
+        "startMinutes": 5,
+        "cleared": 0,
+        "endsAtMs": "<+300s>",
+        "pool": [
+          {
+            "chapter": "ch2",
+            "qid": "ch2-01",
+            "topic": "Gestalt"
+          }
+        ],
+        "allHands": null,
+        "players": [
+          {
+            "cleared": 0,
+            "id": "avery-diaz",
+            "name": "Avery Diaz"
+          },
+          {
+            "cleared": 0,
+            "id": "sam-okafor",
+            "name": "Sam Okafor"
+          }
+        ],
+        "perStudentCap": 4
+      }
+    },
+    {
+      "step": "poll",
+      "room": {
+        "code": "<CODE>",
+        "state": "running",
+        "target": 6,
+        "startMinutes": 5,
+        "cleared": 0,
+        "endsAtMs": "<+300s>",
+        "pool": [
+          {
+            "chapter": "ch2",
+            "qid": "ch2-01",
+            "topic": "Gestalt"
+          }
+        ],
+        "allHands": null,
+        "players": [
+          {
+            "cleared": 0,
+            "id": "avery-diaz",
+            "name": "Avery Diaz"
+          },
+          {
+            "cleared": 0,
+            "id": "sam-okafor",
+            "name": "Sam Okafor"
+          }
+        ],
+        "perStudentCap": 4
+      }
+    },
+    {
+      "step": "clear:sam-from-pool",
+      "room": {
+        "code": "<CODE>",
+        "state": "running",
+        "target": 6,
+        "startMinutes": 5,
+        "cleared": 1,
+        "endsAtMs": "<+316s>",
+        "pool": [],
+        "allHands": null,
+        "players": [
+          {
+            "cleared": 1,
+            "id": "sam-okafor",
+            "name": "Sam Okafor"
+          },
+          {
+            "cleared": 0,
+            "id": "avery-diaz",
+            "name": "Avery Diaz"
+          }
+        ],
+        "perStudentCap": 4
+      }
+    },
+    {
+      "step": "miss:sam",
+      "room": {
+        "code": "<CODE>",
+        "state": "running",
+        "target": 6,
+        "startMinutes": 5,
+        "cleared": 1,
+        "endsAtMs": "<+316s>",
+        "pool": [
+          {
+            "chapter": "ch4",
+            "qid": "ch4-09",
+            "topic": "APIE Evaluation"
+          }
+        ],
+        "allHands": null,
+        "players": [
+          {
+            "cleared": 1,
+            "id": "sam-okafor",
+            "name": "Sam Okafor"
+          },
+          {
+            "cleared": 0,
+            "id": "avery-diaz",
+            "name": "Avery Diaz"
+          }
+        ],
+        "perStudentCap": 4
+      }
+    },
+    {
+      "step": "allhands",
+      "room": {
+        "code": "<CODE>",
+        "state": "running",
+        "target": 6,
+        "startMinutes": 5,
+        "cleared": 1,
+        "endsAtMs": "<+316s>",
+        "pool": [
+          {
+            "chapter": "ch4",
+            "qid": "ch4-09",
+            "topic": "APIE Evaluation"
+          }
+        ],
+        "allHands": {
+          "chapter": "ch4",
+          "endsAt": "<TS>",
+          "qid": "ch4-09",
+          "solved": false,
+          "topic": "APIE Evaluation"
+        },
+        "players": [
+          {
+            "cleared": 1,
+            "id": "sam-okafor",
+            "name": "Sam Okafor"
+          },
+          {
+            "cleared": 0,
+            "id": "avery-diaz",
+            "name": "Avery Diaz"
+          }
+        ],
+        "perStudentCap": 4
+      }
+    },
+    {
+      "step": "clear:avery-allhands",
+      "room": {
+        "code": "<CODE>",
+        "state": "running",
+        "target": 6,
+        "startMinutes": 5,
+        "cleared": 2,
+        "endsAtMs": "<+376s>",
+        "pool": [],
+        "allHands": {
+          "chapter": "ch4",
+          "endsAt": "<TS>",
+          "qid": "ch4-09",
+          "solved": true,
+          "topic": "APIE Evaluation"
+        },
+        "players": [
+          {
+            "cleared": 1,
+            "id": "avery-diaz",
+            "name": "Avery Diaz"
+          },
+          {
+            "cleared": 1,
+            "id": "sam-okafor",
+            "name": "Sam Okafor"
+          }
+        ],
+        "perStudentCap": 4
+      }
+    },
+    {
+      "step": "extend",
+      "room": {
+        "code": "<CODE>",
+        "state": "running",
+        "target": 6,
+        "startMinutes": 5,
+        "cleared": 2,
+        "endsAtMs": "<+436s>",
+        "pool": [],
+        "allHands": {
+          "chapter": "ch4",
+          "endsAt": "<TS>",
+          "qid": "ch4-09",
+          "solved": true,
+          "topic": "APIE Evaluation"
+        },
+        "players": [
+          {
+            "cleared": 1,
+            "id": "avery-diaz",
+            "name": "Avery Diaz"
+          },
+          {
+            "cleared": 1,
+            "id": "sam-okafor",
+            "name": "Sam Okafor"
+          }
+        ],
+        "perStudentCap": 4
+      }
+    },
+    {
+      "step": "clear:sam-2",
+      "room": {
+        "code": "<CODE>",
+        "state": "running",
+        "target": 6,
+        "startMinutes": 5,
+        "cleared": 3,
+        "endsAtMs": "<+441s>",
+        "pool": [],
+        "allHands": {
+          "chapter": "ch4",
+          "endsAt": "<TS>",
+          "qid": "ch4-09",
+          "solved": true,
+          "topic": "APIE Evaluation"
+        },
+        "players": [
+          {
+            "cleared": 2,
+            "id": "sam-okafor",
+            "name": "Sam Okafor"
+          },
+          {
+            "cleared": 1,
+            "id": "avery-diaz",
+            "name": "Avery Diaz"
+          }
+        ],
+        "perStudentCap": 4
+      }
+    },
+    {
+      "step": "clear:sam-3",
+      "room": {
+        "code": "<CODE>",
+        "state": "running",
+        "target": 6,
+        "startMinutes": 5,
+        "cleared": 4,
+        "endsAtMs": "<+446s>",
+        "pool": [],
+        "allHands": {
+          "chapter": "ch4",
+          "endsAt": "<TS>",
+          "qid": "ch4-09",
+          "solved": true,
+          "topic": "APIE Evaluation"
+        },
+        "players": [
+          {
+            "cleared": 3,
+            "id": "sam-okafor",
+            "name": "Sam Okafor"
+          },
+          {
+            "cleared": 1,
+            "id": "avery-diaz",
+            "name": "Avery Diaz"
+          }
+        ],
+        "perStudentCap": 4
+      }
+    },
+    {
+      "step": "clear:sam-4",
+      "room": {
+        "code": "<CODE>",
+        "state": "running",
+        "target": 6,
+        "startMinutes": 5,
+        "cleared": 5,
+        "endsAtMs": "<+451s>",
+        "pool": [],
+        "allHands": {
+          "chapter": "ch4",
+          "endsAt": "<TS>",
+          "qid": "ch4-09",
+          "solved": true,
+          "topic": "APIE Evaluation"
+        },
+        "players": [
+          {
+            "cleared": 4,
+            "id": "sam-okafor",
+            "name": "Sam Okafor"
+          },
+          {
+            "cleared": 1,
+            "id": "avery-diaz",
+            "name": "Avery Diaz"
+          }
+        ],
+        "perStudentCap": 4
+      }
+    },
+    {
+      "step": "clear:sam-5",
+      "room": {
+        "code": "<CODE>",
+        "state": "running",
+        "target": 6,
+        "startMinutes": 5,
+        "cleared": 5,
+        "endsAtMs": "<+451s>",
+        "pool": [],
+        "allHands": {
+          "chapter": "ch4",
+          "endsAt": "<TS>",
+          "qid": "ch4-09",
+          "solved": true,
+          "topic": "APIE Evaluation"
+        },
+        "players": [
+          {
+            "cleared": 4,
+            "id": "sam-okafor",
+            "name": "Sam Okafor"
+          },
+          {
+            "cleared": 1,
+            "id": "avery-diaz",
+            "name": "Avery Diaz"
+          }
+        ],
+        "perStudentCap": 4
+      }
+    },
+    {
+      "step": "end",
+      "room": {
+        "code": "<CODE>",
+        "state": "ended",
+        "target": 6,
+        "startMinutes": 5,
+        "cleared": 5,
+        "endsAtMs": "<+451s>",
+        "pool": [],
+        "allHands": {
+          "chapter": "ch4",
+          "endsAt": "<TS>",
+          "qid": "ch4-09",
+          "solved": true,
+          "topic": "APIE Evaluation"
+        },
+        "players": [
+          {
+            "cleared": 4,
+            "id": "sam-okafor",
+            "name": "Sam Okafor"
+          },
+          {
+            "cleared": 1,
+            "id": "avery-diaz",
+            "name": "Avery Diaz"
+          }
+        ],
+        "perStudentCap": 4
+      }
+    },
+    {
+      "step": "clear:after-end",
+      "room": null
+    }
+  ]
+}

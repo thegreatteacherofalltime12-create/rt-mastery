@@ -834,7 +834,53 @@
   // Buy Time. One shared clock on the projector; this phone serves its own
   // questions at this student's own level. A miss costs the room nothing.
 
-  var LIVE = { code: '', room: null, poll: null, view: null, feedback: '', busy: false, misses: {}, lastJson: '' };
+  // One entry per live format this bundle can play. The phone never asks which
+  // game to run - it joins a code, and the room tells it. Students pick nothing
+  // and are never shown a game name.
+  var LIVE_GAMES = {
+    buytime: {
+      // the shared scoreboard strip above the question
+      banner: function (r, g) {
+        var pct = Math.min(100, 100 * (g.cleared || 0) / (g.target || 1));
+        var h = '<div class="card" style="padding:12px 14px;margin-bottom:10px">' +
+          '<div style="display:flex;justify-content:space-between;font-size:0.85rem;margin-bottom:6px">' +
+          '<span class="dim">The room</span><span><b>' + (g.cleared || 0) + '</b> / ' + g.target + '</span></div>' +
+          '<div class="bar"><i style="width:' + pct.toFixed(1) + '%;background:var(--good)"></i></div></div>';
+        var a = g.allHands;
+        if (a && !a.solved && new Date(a.endsAt).getTime() > Date.now()) {
+          h += '<div class="banner warn" style="text-align:center"><b>&#9995; ALL HANDS</b> &mdash; ' +
+               '60 seconds for the room if you get this</div>';
+        }
+        return h;
+      },
+      clockMs: function (g) { return g.endsAtMs || null; },
+      // what the end screen says
+      outcome: function (r, g) {
+        var won = g.won === true || r.state === 'won' || (g.cleared || 0) >= g.target;
+        return {
+          won: won,
+          title: won ? 'The room made it' : 'Time',
+          detail: (g.cleared || 0) + ' of ' + g.target + ' cleared together'
+        };
+      },
+      // anything that closes on the wall clock rather than on a document change
+      sig: function (g) {
+        var a = g.allHands;
+        return a && !a.solved && new Date(a.endsAt).getTime() > Date.now() ? '|ah' : '';
+      }
+    }
+  };
+
+  // Sent on join so the room can refuse a bundle that cannot render it, before
+  // that phone costs a write or half-plays a game it does not have.
+  var MY_GAMES = Object.keys(LIVE_GAMES);
+
+  var LIVE = { code: '', room: null, poll: null, view: null, feedback: '', busy: false,
+               misses: {}, lastJson: '', stale: '' };
+
+  function liveGameOf(r) { return (r && r.game) || 'buytime'; }
+  function liveDef(r) { return LIVE_GAMES[liveGameOf(r)] || null; }
+  function liveState(r) { return (r && (r.gs || r)) || {}; }
 
   function liveApi(method, path, body) {
     var opt = { method: method, headers: { 'Content-Type': 'application/json' } };
@@ -845,18 +891,20 @@
   }
 
   function liveEvent(type, extra) {
-    return liveApi('POST', API + '/room/event', Object.assign({
+    var body = Object.assign({
       classCode: S.profile.classCode, code: LIVE.code, name: S.profile.name, type: type
-    }, extra || {}));
+    }, extra || {});
+    if (type === 'join') body.games = MY_GAMES;
+    return liveApi('POST', API + '/room/event', body);
   }
 
   // Pick the next question: a pool item if this student can clear one, otherwise
   // their own weakest material at their own level.
   function nextLiveQuestion() {
-    var pool = (LIVE.room && LIVE.room.pool) || [];
+    var pool = liveState(LIVE.room).pool || [];
     var all = allQuestions();
 
-    var ah = LIVE.room && LIVE.room.allHands;
+    var ah = liveState(LIVE.room).allHands;
     if (ah && !ah.solved && new Date(ah.endsAt).getTime() > Date.now()) {
       var hit = all.filter(function (q) { return q.id === ah.qid; })[0];
       if (hit) return { q: hit, fromPool: true, allHands: true };
@@ -961,9 +1009,8 @@
           // in the signature: that buys one render when it opens and one when it
           // shuts, instead of one every tick until the round ends.
           var rm = res.j.room;
-          var ahOpen = rm.allHands && !rm.allHands.solved &&
-                       new Date(rm.allHands.endsAt).getTime() > Date.now();
-          var j = JSON.stringify(rm) + (ahOpen ? '|ah' : '');
+          var pdef = liveDef(rm);
+          var j = JSON.stringify(rm) + (pdef && pdef.sig ? pdef.sig(liveState(rm)) : '');
           if (j === LIVE.lastJson) return;
           LIVE.lastJson = j;
 
@@ -973,7 +1020,7 @@
 
           // ALL HANDS interrupts. The window is short, so waiting for the student
           // to finish whatever they were on would waste most of it.
-          var ah = LIVE.room.allHands;
+          var ah = liveState(LIVE.room).allHands;
           if (ah && !ah.solved && new Date(ah.endsAt).getTime() > Date.now() &&
               LIVE.view && !LIVE.view.answered && LIVE.view.q.id !== ah.qid) {
             serveNextLive();
@@ -987,17 +1034,46 @@
 
   function viewLive() {
     var r = LIVE.room;
+    var def = r ? liveDef(r) : null;
+    var g = liveState(r);
+    var ends = def && def.clockMs ? def.clockMs(g) : null;
+
+    // The topbar deliberately does NOT name the game. She reads out a code and
+    // says nothing else; printing the name here would undo that on ten phones.
     var h = '<div class="topbar">' +
       '<button class="iconbtn" data-liveexit>&larr;</button>' +
-      '<strong style="font-size:0.95rem">Buy Time</strong><div class="spacer"></div>' +
-      (r && r.endsAtMs ? '<span class="pill timer" id="livetimer">--:--</span>' : '') +
+      '<strong style="font-size:0.95rem">Live round</strong><div class="spacer"></div>' +
+      (ends ? '<span class="pill timer" id="livetimer">--:--</span>' : '') +
       '</div>';
+
+    // A code for a format this bundle does not carry. Say so and say what to
+    // do - never fall back to another game, which would look like it worked.
+    if (LIVE.stale) {
+      return h + '<div class="card pad-lg center">' +
+        '<div style="font-size:2.6rem">&#8634;</div>' +
+        '<h2 style="margin-bottom:6px">Update needed</h2>' +
+        '<p class="dim">This round needs the newest version of the game. ' +
+        'Close this tab, open the game link again, then tap Join live round.</p>' +
+        '<p class="faint">Your progress is saved.</p>' +
+        '</div><button class="btn" data-livereload>Reload now</button>' +
+        '<button class="btn ghost" data-liveexit2>Back to my map</button>';
+    }
+
+    if (r && !def) {
+      return h + '<div class="card pad-lg center">' +
+        '<div style="font-size:2.6rem">&#8634;</div>' +
+        '<h2 style="margin-bottom:6px">Update needed</h2>' +
+        '<p class="dim">Close this tab, open the game link again, then tap Join live round.</p>' +
+        '<p class="faint">Your progress is saved.</p>' +
+        '</div><button class="btn" data-livereload>Reload now</button>' +
+        '<button class="btn ghost" data-liveexit2>Back to my map</button>';
+    }
 
     if (!r) {
       return h + '<div class="card pad-lg">' +
         '<h2 style="margin-bottom:6px">Join the live round</h2>' +
         '<p class="dim" style="font-size:0.9rem">Your instructor will read out a four letter room code. ' +
-        'Everyone answers their own questions at their own level — nothing you get wrong costs the class anything.</p>' +
+        'Type it in and you are playing — you do not need to pick anything.</p>' +
         '<div class="field"><label for="roomcode">Room code</label>' +
         '<input id="roomcode" maxlength="4" autocapitalize="characters" autocomplete="off" ' +
         'placeholder="ABCD" style="text-transform:uppercase;letter-spacing:0.3em;font-size:1.4rem;text-align:center"></div>' +
@@ -1015,22 +1091,16 @@
     }
 
     if (r.state !== 'running') {
-      var won = r.state === 'won' || r.cleared >= r.target;
+      var out = def.outcome ? def.outcome(r, g) : { won: false, title: 'Time', detail: '' };
       return h + '<div class="card pad-lg center">' +
-        '<div style="font-size:2.8rem">' + (won ? '&#127881;' : '&#9203;') + '</div>' +
-        '<h2>' + (won ? 'The room made it' : 'Time') + '</h2>' +
-        '<p class="dim">' + r.cleared + ' of ' + r.target + ' cleared together</p>' +
+        '<div style="font-size:2.8rem">' + (out.won ? '&#127881;' : '&#9203;') + '</div>' +
+        '<h2>' + esc(out.title) + '</h2>' +
+        (out.detail ? '<p class="dim">' + esc(out.detail) + '</p>' : '') +
         '</div><button class="btn" data-liveexit2>Back to my map</button>';
     }
 
-    var pct = Math.min(100, 100 * r.cleared / (r.target || 1));
-    h += '<div class="card" style="padding:12px 14px;margin-bottom:10px">' +
-      '<div style="display:flex;justify-content:space-between;font-size:0.85rem;margin-bottom:6px">' +
-      '<span class="dim">The room</span><span><b>' + r.cleared + '</b> / ' + r.target + '</span></div>' +
-      '<div class="bar"><i style="width:' + pct.toFixed(1) + '%;background:var(--good)"></i></div></div>';
-
-    var ah = r.allHands && !r.allHands.solved && new Date(r.allHands.endsAt).getTime() > Date.now();
-    if (ah) h += '<div class="banner warn" style="text-align:center"><b>&#9995; ALL HANDS</b> &mdash; 60 seconds for the room if you get this</div>';
+    // Everything above the question belongs to the format.
+    if (def.banner) h += def.banner(r, g);
 
     var v = LIVE.view;
     if (!v) return h + '<div class="card"><p class="dim">Finding you a question…</p></div>';
@@ -1095,8 +1165,10 @@
   // poll never freezes it and phones never drift apart.
   setInterval(function () {
     var el = document.getElementById('livetimer');
-    if (!el || !LIVE.room || !LIVE.room.endsAtMs) return;
-    var left = LIVE.room.endsAtMs - Date.now();
+    var tdef = liveDef(LIVE.room);
+    var ends = tdef && tdef.clockMs ? tdef.clockMs(liveState(LIVE.room)) : null;
+    if (!el || !ends) return;
+    var left = ends - Date.now();
     if (left < 0) left = 0;
     var t = Math.ceil(left / 1000);
     el.textContent = Math.floor(t / 60) + ':' + String(t % 60).padStart(2, '0');
@@ -1178,7 +1250,11 @@
   }
 
   function advance() {
+    // Only a practice run advances through a fixed list. A live round asks the
+    // room for its next question instead, so this must never be reached with
+    // S.run null - and must not throw if a future game's chrome wires it here.
     var r = S.run;
+    if (!r) { if (S.screen === 'live') liveNext(); return; }
     if (r.idx + 1 >= r.views.length) { finishRun(); return; }
     r.idx++;
     render();
@@ -1327,6 +1403,8 @@
       LIVE.code = code; LIVE.misses = {};
       liveEvent('join').then(function (res) {
         LIVE.busy = false;
+        // 426: the room is running a format this bundle does not carry.
+        if (res.status === 426) { LIVE.stale = res.j.game || 'that game'; render(); return; }
         if (!res.ok) { LIVE.feedback = res.j.error === 'room not found' ? 'No round with that code yet.' : 'Could not join.'; render(); return; }
         LIVE.room = res.j.room; LIVE.feedback = '';
         if (LIVE.room.state === 'running') serveNextLive();
@@ -1341,10 +1419,13 @@
     // and a student who cannot leave is a student still polling.
     function exitLive() {
       stopLivePolling();
-      LIVE.room = null; LIVE.view = null; LIVE.feedback = ''; LIVE.lastJson = '';
+      LIVE.room = null; LIVE.view = null; LIVE.feedback = '';
+      LIVE.lastJson = ''; LIVE.stale = ''; LIVE.code = ''; LIVE.misses = {};
       S.screen = 'map'; render();
       if (syncEnabled()) syncProgress({ type: 'live' });
     }
+    var rl = app.querySelector('[data-livereload]');
+    if (rl) rl.onclick = function () { location.reload(); };
     app.querySelectorAll('[data-liveexit],[data-liveexit2]').forEach(function (b) {
       b.onclick = exitLive;
     });

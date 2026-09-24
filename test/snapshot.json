@@ -1,0 +1,1611 @@
+{
+  "steps": [
+    {
+      "step": "create",
+      "status": 200,
+      "wire": {
+        "ok": true,
+        "room": {
+          "allHands": null,
+          "cleared": 0,
+          "code": "<CODE>",
+          "endsAtMs": null,
+          "game": "buytime",
+          "gs": {
+            "allHands": null,
+            "cleared": 0,
+            "endsAtMs": null,
+            "perStudentCap": 4,
+            "pool": [],
+            "scores": {},
+            "startMinutes": 5,
+            "target": 6,
+            "won": false
+          },
+          "perStudentCap": 4,
+          "players": [],
+          "pool": [],
+          "stage": "",
+          "startMinutes": 5,
+          "state": "lobby",
+          "target": 6
+        }
+      },
+      "doc": {
+        "cfg": {
+          "minutes": 5,
+          "target": 6
+        },
+        "classCode": "rt101",
+        "code": "<CODE>",
+        "createdAt": "<TS>",
+        "game": "buytime",
+        "gs": {
+          "allHands": null,
+          "cleared": 0,
+          "endsAtMs": 0,
+          "pool": []
+        },
+        "players": {},
+        "stage": "",
+        "state": "lobby"
+      }
+    },
+    {
+      "step": "join:avery",
+      "status": 200,
+      "wire": {
+        "ok": true,
+        "room": {
+          "allHands": null,
+          "cleared": 0,
+          "code": "<CODE>",
+          "endsAtMs": null,
+          "game": "buytime",
+          "gs": {
+            "allHands": null,
+            "cleared": 0,
+            "endsAtMs": null,
+            "perStudentCap": 4,
+            "pool": [],
+            "scores": {
+              "avery-diaz": 0
+            },
+            "startMinutes": 5,
+            "target": 6,
+            "won": false
+          },
+          "perStudentCap": 4,
+          "players": [
+            {
+              "cleared": 0,
+              "id": "avery-diaz",
+              "name": "Avery Diaz"
+            }
+          ],
+          "pool": [],
+          "stage": "",
+          "startMinutes": 5,
+          "state": "lobby",
+          "target": 6
+        }
+      },
+      "doc": {
+        "cfg": {
+          "minutes": 5,
+          "target": 6
+        },
+        "classCode": "rt101",
+        "code": "<CODE>",
+        "createdAt": "<TS>",
+        "game": "buytime",
+        "gs": {
+          "allHands": null,
+          "cleared": 0,
+          "endsAtMs": 0,
+          "pool": []
+        },
+        "players": {
+          "avery-diaz": {
+            "cleared": 0,
+            "name": "Avery Diaz"
+          }
+        },
+        "stage": "",
+        "state": "lobby"
+      }
+    },
+    {
+      "step": "join:sam",
+      "status": 200,
+      "wire": {
+        "ok": true,
+        "room": {
+          "allHands": null,
+          "cleared": 0,
+          "code": "<CODE>",
+          "endsAtMs": null,
+          "game": "buytime",
+          "gs": {
+            "allHands": null,
+            "cleared": 0,
+            "endsAtMs": null,
+            "perStudentCap": 4,
+            "pool": [],
+            "scores": {
+              "avery-diaz": 0,
+              "sam-okafor": 0
+            },
+            "startMinutes": 5,
+            "target": 6,
+            "won": false
+          },
+          "perStudentCap": 4,
+          "players": [
+            {
+              "cleared": 0,
+              "id": "avery-diaz",
+              "name": "Avery Diaz"
+            },
+            {
+              "cleared": 0,
+              "id": "sam-okafor",
+              "name": "Sam Okafor"
+            }
+          ],
+          "pool": [],
+          "stage": "",
+          "startMinutes": 5,
+          "state": "lobby",
+          "target": 6
+        }
+      },
+      "doc": {
+        "cfg": {
+          "minutes": 5,
+          "target": 6
+        },
+        "classCode": "rt101",
+        "code": "<CODE>",
+        "createdAt": "<TS>",
+        "game": "buytime",
+        "gs": {
+          "allHands": null,
+          "cleared": 0,
+          "endsAtMs": 0,
+          "pool": []
+        },
+        "players": {
+          "avery-diaz": {
+            "cleared": 0,
+            "name": "Avery Diaz"
+          },
+          "sam-okafor": {
+            "cleared": 0,
+            "name": "Sam Okafor"
+          }
+        },
+        "stage": "",
+        "state": "lobby"
+      }
+    },
+    {
+      "step": "join:avery-again",
+      "status": 200,
+      "wire": {
+        "ok": true,
+        "room": {
+          "allHands": null,
+          "cleared": 0,
+          "code": "<CODE>",
+          "endsAtMs": null,
+          "game": "buytime",
+          "gs": {
+            "allHands": null,
+            "cleared": 0,
+            "endsAtMs": null,
+            "perStudentCap": 4,
+            "pool": [],
+            "scores": {
+              "avery-diaz": 0,
+              "sam-okafor": 0
+            },
+            "startMinutes": 5,
+            "target": 6,
+            "won": false
+          },
+          "perStudentCap": 4,
+          "players": [
+            {
+              "cleared": 0,
+              "id": "avery-diaz",
+              "name": "Avery Diaz"
+            },
+            {
+              "cleared": 0,
+              "id": "sam-okafor",
+              "name": "Sam Okafor"
+            }
+          ],
+          "pool": [],
+          "stage": "",
+          "startMinutes": 5,
+          "state": "lobby",
+          "target": 6
+        }
+      },
+      "doc": {
+        "cfg": {
+          "minutes": 5,
+          "target": 6
+        },
+        "classCode": "rt101",
+        "code": "<CODE>",
+        "createdAt": "<TS>",
+        "game": "buytime",
+        "gs": {
+          "allHands": null,
+          "cleared": 0,
+          "endsAtMs": 0,
+          "pool": []
+        },
+        "players": {
+          "avery-diaz": {
+            "cleared": 0,
+            "name": "Avery Diaz"
+          },
+          "sam-okafor": {
+            "cleared": 0,
+            "name": "Sam Okafor"
+          }
+        },
+        "stage": "",
+        "state": "lobby"
+      }
+    },
+    {
+      "step": "start",
+      "status": 200,
+      "wire": {
+        "ok": true,
+        "room": {
+          "allHands": null,
+          "cleared": 0,
+          "code": "<CODE>",
+          "endsAtMs": "<+300s>",
+          "game": "buytime",
+          "gs": {
+            "allHands": null,
+            "cleared": 0,
+            "endsAtMs": "<+300s>",
+            "perStudentCap": 4,
+            "pool": [],
+            "scores": {
+              "avery-diaz": 0,
+              "sam-okafor": 0
+            },
+            "startMinutes": 5,
+            "target": 6,
+            "won": false
+          },
+          "perStudentCap": 4,
+          "players": [
+            {
+              "cleared": 0,
+              "id": "avery-diaz",
+              "name": "Avery Diaz"
+            },
+            {
+              "cleared": 0,
+              "id": "sam-okafor",
+              "name": "Sam Okafor"
+            }
+          ],
+          "pool": [],
+          "stage": "",
+          "startMinutes": 5,
+          "state": "running",
+          "target": 6
+        }
+      },
+      "doc": {
+        "cfg": {
+          "minutes": 5,
+          "target": 6
+        },
+        "classCode": "rt101",
+        "code": "<CODE>",
+        "createdAt": "<TS>",
+        "game": "buytime",
+        "gs": {
+          "allHands": null,
+          "cleared": 0,
+          "endsAtMs": "<+300s>",
+          "pool": []
+        },
+        "players": {
+          "avery-diaz": {
+            "cleared": 0,
+            "name": "Avery Diaz"
+          },
+          "sam-okafor": {
+            "cleared": 0,
+            "name": "Sam Okafor"
+          }
+        },
+        "stage": "",
+        "state": "running"
+      }
+    },
+    {
+      "step": "miss:avery",
+      "status": 200,
+      "wire": {
+        "ok": true,
+        "room": {
+          "allHands": null,
+          "cleared": 0,
+          "code": "<CODE>",
+          "endsAtMs": "<+300s>",
+          "game": "buytime",
+          "gs": {
+            "allHands": null,
+            "cleared": 0,
+            "endsAtMs": "<+300s>",
+            "perStudentCap": 4,
+            "pool": [
+              {
+                "chapter": "ch2",
+                "qid": "ch2-01",
+                "topic": "Gestalt"
+              }
+            ],
+            "scores": {
+              "avery-diaz": 0,
+              "sam-okafor": 0
+            },
+            "startMinutes": 5,
+            "target": 6,
+            "won": false
+          },
+          "perStudentCap": 4,
+          "players": [
+            {
+              "cleared": 0,
+              "id": "avery-diaz",
+              "name": "Avery Diaz"
+            },
+            {
+              "cleared": 0,
+              "id": "sam-okafor",
+              "name": "Sam Okafor"
+            }
+          ],
+          "pool": [
+            {
+              "chapter": "ch2",
+              "qid": "ch2-01",
+              "topic": "Gestalt"
+            }
+          ],
+          "stage": "",
+          "startMinutes": 5,
+          "state": "running",
+          "target": 6
+        },
+        "seconds": 0
+      },
+      "doc": {
+        "cfg": {
+          "minutes": 5,
+          "target": 6
+        },
+        "classCode": "rt101",
+        "code": "<CODE>",
+        "createdAt": "<TS>",
+        "game": "buytime",
+        "gs": {
+          "allHands": null,
+          "cleared": 0,
+          "endsAtMs": "<+300s>",
+          "pool": [
+            {
+              "chapter": "ch2",
+              "qid": "ch2-01",
+              "topic": "Gestalt"
+            }
+          ]
+        },
+        "players": {
+          "avery-diaz": {
+            "cleared": 0,
+            "name": "Avery Diaz"
+          },
+          "sam-okafor": {
+            "cleared": 0,
+            "name": "Sam Okafor"
+          }
+        },
+        "stage": "",
+        "state": "running"
+      }
+    },
+    {
+      "step": "miss:duplicate",
+      "status": 200,
+      "wire": {
+        "ok": true,
+        "room": {
+          "allHands": null,
+          "cleared": 0,
+          "code": "<CODE>",
+          "endsAtMs": "<+300s>",
+          "game": "buytime",
+          "gs": {
+            "allHands": null,
+            "cleared": 0,
+            "endsAtMs": "<+300s>",
+            "perStudentCap": 4,
+            "pool": [
+              {
+                "chapter": "ch2",
+                "qid": "ch2-01",
+                "topic": "Gestalt"
+              }
+            ],
+            "scores": {
+              "avery-diaz": 0,
+              "sam-okafor": 0
+            },
+            "startMinutes": 5,
+            "target": 6,
+            "won": false
+          },
+          "perStudentCap": 4,
+          "players": [
+            {
+              "cleared": 0,
+              "id": "avery-diaz",
+              "name": "Avery Diaz"
+            },
+            {
+              "cleared": 0,
+              "id": "sam-okafor",
+              "name": "Sam Okafor"
+            }
+          ],
+          "pool": [
+            {
+              "chapter": "ch2",
+              "qid": "ch2-01",
+              "topic": "Gestalt"
+            }
+          ],
+          "stage": "",
+          "startMinutes": 5,
+          "state": "running",
+          "target": 6
+        },
+        "seconds": 0
+      },
+      "doc": {
+        "cfg": {
+          "minutes": 5,
+          "target": 6
+        },
+        "classCode": "rt101",
+        "code": "<CODE>",
+        "createdAt": "<TS>",
+        "game": "buytime",
+        "gs": {
+          "allHands": null,
+          "cleared": 0,
+          "endsAtMs": "<+300s>",
+          "pool": [
+            {
+              "chapter": "ch2",
+              "qid": "ch2-01",
+              "topic": "Gestalt"
+            }
+          ]
+        },
+        "players": {
+          "avery-diaz": {
+            "cleared": 0,
+            "name": "Avery Diaz"
+          },
+          "sam-okafor": {
+            "cleared": 0,
+            "name": "Sam Okafor"
+          }
+        },
+        "stage": "",
+        "state": "running"
+      }
+    },
+    {
+      "step": "poll",
+      "status": 200,
+      "wire": {
+        "ok": true,
+        "room": {
+          "allHands": null,
+          "cleared": 0,
+          "code": "<CODE>",
+          "endsAtMs": "<+300s>",
+          "game": "buytime",
+          "gs": {
+            "allHands": null,
+            "cleared": 0,
+            "endsAtMs": "<+300s>",
+            "perStudentCap": 4,
+            "pool": [
+              {
+                "chapter": "ch2",
+                "qid": "ch2-01",
+                "topic": "Gestalt"
+              }
+            ],
+            "scores": {
+              "avery-diaz": 0,
+              "sam-okafor": 0
+            },
+            "startMinutes": 5,
+            "target": 6,
+            "won": false
+          },
+          "perStudentCap": 4,
+          "players": [
+            {
+              "cleared": 0,
+              "id": "avery-diaz",
+              "name": "Avery Diaz"
+            },
+            {
+              "cleared": 0,
+              "id": "sam-okafor",
+              "name": "Sam Okafor"
+            }
+          ],
+          "pool": [
+            {
+              "chapter": "ch2",
+              "qid": "ch2-01",
+              "topic": "Gestalt"
+            }
+          ],
+          "stage": "",
+          "startMinutes": 5,
+          "state": "running",
+          "target": 6
+        }
+      },
+      "doc": {
+        "cfg": {
+          "minutes": 5,
+          "target": 6
+        },
+        "classCode": "rt101",
+        "code": "<CODE>",
+        "createdAt": "<TS>",
+        "game": "buytime",
+        "gs": {
+          "allHands": null,
+          "cleared": 0,
+          "endsAtMs": "<+300s>",
+          "pool": [
+            {
+              "chapter": "ch2",
+              "qid": "ch2-01",
+              "topic": "Gestalt"
+            }
+          ]
+        },
+        "players": {
+          "avery-diaz": {
+            "cleared": 0,
+            "name": "Avery Diaz"
+          },
+          "sam-okafor": {
+            "cleared": 0,
+            "name": "Sam Okafor"
+          }
+        },
+        "stage": "",
+        "state": "running"
+      }
+    },
+    {
+      "step": "clear:sam-from-pool",
+      "status": 200,
+      "wire": {
+        "allHands": null,
+        "atCap": false,
+        "counted": true,
+        "fromPool": true,
+        "ok": true,
+        "room": {
+          "allHands": null,
+          "cleared": 1,
+          "code": "<CODE>",
+          "endsAtMs": "<+316s>",
+          "game": "buytime",
+          "gs": {
+            "allHands": null,
+            "cleared": 1,
+            "endsAtMs": "<+316s>",
+            "perStudentCap": 4,
+            "pool": [],
+            "scores": {
+              "avery-diaz": 0,
+              "sam-okafor": 1
+            },
+            "startMinutes": 5,
+            "target": 6,
+            "won": false
+          },
+          "perStudentCap": 4,
+          "players": [
+            {
+              "cleared": 1,
+              "id": "sam-okafor",
+              "name": "Sam Okafor"
+            },
+            {
+              "cleared": 0,
+              "id": "avery-diaz",
+              "name": "Avery Diaz"
+            }
+          ],
+          "pool": [],
+          "stage": "",
+          "startMinutes": 5,
+          "state": "running",
+          "target": 6
+        },
+        "seconds": 16
+      },
+      "doc": {
+        "cfg": {
+          "minutes": 5,
+          "target": 6
+        },
+        "classCode": "rt101",
+        "code": "<CODE>",
+        "createdAt": "<TS>",
+        "game": "buytime",
+        "gs": {
+          "allHands": null,
+          "cleared": 1,
+          "endsAtMs": "<+316s>",
+          "pool": []
+        },
+        "players": {
+          "avery-diaz": {
+            "cleared": 0,
+            "name": "Avery Diaz"
+          },
+          "sam-okafor": {
+            "cleared": 1,
+            "name": "Sam Okafor"
+          }
+        },
+        "stage": "",
+        "state": "running"
+      }
+    },
+    {
+      "step": "miss:sam",
+      "status": 200,
+      "wire": {
+        "ok": true,
+        "room": {
+          "allHands": null,
+          "cleared": 1,
+          "code": "<CODE>",
+          "endsAtMs": "<+316s>",
+          "game": "buytime",
+          "gs": {
+            "allHands": null,
+            "cleared": 1,
+            "endsAtMs": "<+316s>",
+            "perStudentCap": 4,
+            "pool": [
+              {
+                "chapter": "ch4",
+                "qid": "ch4-09",
+                "topic": "APIE Evaluation"
+              }
+            ],
+            "scores": {
+              "avery-diaz": 0,
+              "sam-okafor": 1
+            },
+            "startMinutes": 5,
+            "target": 6,
+            "won": false
+          },
+          "perStudentCap": 4,
+          "players": [
+            {
+              "cleared": 1,
+              "id": "sam-okafor",
+              "name": "Sam Okafor"
+            },
+            {
+              "cleared": 0,
+              "id": "avery-diaz",
+              "name": "Avery Diaz"
+            }
+          ],
+          "pool": [
+            {
+              "chapter": "ch4",
+              "qid": "ch4-09",
+              "topic": "APIE Evaluation"
+            }
+          ],
+          "stage": "",
+          "startMinutes": 5,
+          "state": "running",
+          "target": 6
+        },
+        "seconds": 0
+      },
+      "doc": {
+        "cfg": {
+          "minutes": 5,
+          "target": 6
+        },
+        "classCode": "rt101",
+        "code": "<CODE>",
+        "createdAt": "<TS>",
+        "game": "buytime",
+        "gs": {
+          "allHands": null,
+          "cleared": 1,
+          "endsAtMs": "<+316s>",
+          "pool": [
+            {
+              "chapter": "ch4",
+              "qid": "ch4-09",
+              "topic": "APIE Evaluation"
+            }
+          ]
+        },
+        "players": {
+          "avery-diaz": {
+            "cleared": 0,
+            "name": "Avery Diaz"
+          },
+          "sam-okafor": {
+            "cleared": 1,
+            "name": "Sam Okafor"
+          }
+        },
+        "stage": "",
+        "state": "running"
+      }
+    },
+    {
+      "step": "allhands",
+      "status": 200,
+      "wire": {
+        "ok": true,
+        "room": {
+          "allHands": {
+            "chapter": "ch4",
+            "endsAt": "<TS>",
+            "qid": "ch4-09",
+            "solved": false,
+            "topic": "APIE Evaluation"
+          },
+          "cleared": 1,
+          "code": "<CODE>",
+          "endsAtMs": "<+316s>",
+          "game": "buytime",
+          "gs": {
+            "allHands": {
+              "chapter": "ch4",
+              "endsAt": "<TS>",
+              "qid": "ch4-09",
+              "solved": false,
+              "topic": "APIE Evaluation"
+            },
+            "cleared": 1,
+            "endsAtMs": "<+316s>",
+            "perStudentCap": 4,
+            "pool": [
+              {
+                "chapter": "ch4",
+                "qid": "ch4-09",
+                "topic": "APIE Evaluation"
+              }
+            ],
+            "scores": {
+              "avery-diaz": 0,
+              "sam-okafor": 1
+            },
+            "startMinutes": 5,
+            "target": 6,
+            "won": false
+          },
+          "perStudentCap": 4,
+          "players": [
+            {
+              "cleared": 1,
+              "id": "sam-okafor",
+              "name": "Sam Okafor"
+            },
+            {
+              "cleared": 0,
+              "id": "avery-diaz",
+              "name": "Avery Diaz"
+            }
+          ],
+          "pool": [
+            {
+              "chapter": "ch4",
+              "qid": "ch4-09",
+              "topic": "APIE Evaluation"
+            }
+          ],
+          "stage": "",
+          "startMinutes": 5,
+          "state": "running",
+          "target": 6
+        }
+      },
+      "doc": {
+        "cfg": {
+          "minutes": 5,
+          "target": 6
+        },
+        "classCode": "rt101",
+        "code": "<CODE>",
+        "createdAt": "<TS>",
+        "game": "buytime",
+        "gs": {
+          "allHands": {
+            "chapter": "ch4",
+            "endsAt": "<TS>",
+            "qid": "ch4-09",
+            "solved": false,
+            "topic": "APIE Evaluation"
+          },
+          "cleared": 1,
+          "endsAtMs": "<+316s>",
+          "pool": [
+            {
+              "chapter": "ch4",
+              "qid": "ch4-09",
+              "topic": "APIE Evaluation"
+            }
+          ]
+        },
+        "players": {
+          "avery-diaz": {
+            "cleared": 0,
+            "name": "Avery Diaz"
+          },
+          "sam-okafor": {
+            "cleared": 1,
+            "name": "Sam Okafor"
+          }
+        },
+        "stage": "",
+        "state": "running"
+      }
+    },
+    {
+      "step": "clear:avery-allhands",
+      "status": 200,
+      "wire": {
+        "allHands": true,
+        "atCap": false,
+        "counted": true,
+        "fromPool": true,
+        "ok": true,
+        "room": {
+          "allHands": {
+            "chapter": "ch4",
+            "endsAt": "<TS>",
+            "qid": "ch4-09",
+            "solved": true,
+            "topic": "APIE Evaluation"
+          },
+          "cleared": 2,
+          "code": "<CODE>",
+          "endsAtMs": "<+376s>",
+          "game": "buytime",
+          "gs": {
+            "allHands": {
+              "chapter": "ch4",
+              "endsAt": "<TS>",
+              "qid": "ch4-09",
+              "solved": true,
+              "topic": "APIE Evaluation"
+            },
+            "cleared": 2,
+            "endsAtMs": "<+376s>",
+            "perStudentCap": 4,
+            "pool": [],
+            "scores": {
+              "avery-diaz": 1,
+              "sam-okafor": 1
+            },
+            "startMinutes": 5,
+            "target": 6,
+            "won": false
+          },
+          "perStudentCap": 4,
+          "players": [
+            {
+              "cleared": 1,
+              "id": "avery-diaz",
+              "name": "Avery Diaz"
+            },
+            {
+              "cleared": 1,
+              "id": "sam-okafor",
+              "name": "Sam Okafor"
+            }
+          ],
+          "pool": [],
+          "stage": "",
+          "startMinutes": 5,
+          "state": "running",
+          "target": 6
+        },
+        "seconds": 60
+      },
+      "doc": {
+        "cfg": {
+          "minutes": 5,
+          "target": 6
+        },
+        "classCode": "rt101",
+        "code": "<CODE>",
+        "createdAt": "<TS>",
+        "game": "buytime",
+        "gs": {
+          "allHands": {
+            "chapter": "ch4",
+            "endsAt": "<TS>",
+            "qid": "ch4-09",
+            "solved": true,
+            "topic": "APIE Evaluation"
+          },
+          "cleared": 2,
+          "endsAtMs": "<+376s>",
+          "pool": []
+        },
+        "players": {
+          "avery-diaz": {
+            "cleared": 1,
+            "name": "Avery Diaz"
+          },
+          "sam-okafor": {
+            "cleared": 1,
+            "name": "Sam Okafor"
+          }
+        },
+        "stage": "",
+        "state": "running"
+      }
+    },
+    {
+      "step": "extend",
+      "status": 200,
+      "wire": {
+        "ok": true,
+        "room": {
+          "allHands": {
+            "chapter": "ch4",
+            "endsAt": "<TS>",
+            "qid": "ch4-09",
+            "solved": true,
+            "topic": "APIE Evaluation"
+          },
+          "cleared": 2,
+          "code": "<CODE>",
+          "endsAtMs": "<+436s>",
+          "game": "buytime",
+          "gs": {
+            "allHands": {
+              "chapter": "ch4",
+              "endsAt": "<TS>",
+              "qid": "ch4-09",
+              "solved": true,
+              "topic": "APIE Evaluation"
+            },
+            "cleared": 2,
+            "endsAtMs": "<+436s>",
+            "perStudentCap": 4,
+            "pool": [],
+            "scores": {
+              "avery-diaz": 1,
+              "sam-okafor": 1
+            },
+            "startMinutes": 5,
+            "target": 6,
+            "won": false
+          },
+          "perStudentCap": 4,
+          "players": [
+            {
+              "cleared": 1,
+              "id": "avery-diaz",
+              "name": "Avery Diaz"
+            },
+            {
+              "cleared": 1,
+              "id": "sam-okafor",
+              "name": "Sam Okafor"
+            }
+          ],
+          "pool": [],
+          "stage": "",
+          "startMinutes": 5,
+          "state": "running",
+          "target": 6
+        }
+      },
+      "doc": {
+        "cfg": {
+          "minutes": 5,
+          "target": 6
+        },
+        "classCode": "rt101",
+        "code": "<CODE>",
+        "createdAt": "<TS>",
+        "game": "buytime",
+        "gs": {
+          "allHands": {
+            "chapter": "ch4",
+            "endsAt": "<TS>",
+            "qid": "ch4-09",
+            "solved": true,
+            "topic": "APIE Evaluation"
+          },
+          "cleared": 2,
+          "endsAtMs": "<+436s>",
+          "pool": []
+        },
+        "players": {
+          "avery-diaz": {
+            "cleared": 1,
+            "name": "Avery Diaz"
+          },
+          "sam-okafor": {
+            "cleared": 1,
+            "name": "Sam Okafor"
+          }
+        },
+        "stage": "",
+        "state": "running"
+      }
+    },
+    {
+      "step": "clear:sam-2",
+      "status": 200,
+      "wire": {
+        "allHands": false,
+        "atCap": false,
+        "counted": true,
+        "fromPool": false,
+        "ok": true,
+        "room": {
+          "allHands": {
+            "chapter": "ch4",
+            "endsAt": "<TS>",
+            "qid": "ch4-09",
+            "solved": true,
+            "topic": "APIE Evaluation"
+          },
+          "cleared": 3,
+          "code": "<CODE>",
+          "endsAtMs": "<+441s>",
+          "game": "buytime",
+          "gs": {
+            "allHands": {
+              "chapter": "ch4",
+              "endsAt": "<TS>",
+              "qid": "ch4-09",
+              "solved": true,
+              "topic": "APIE Evaluation"
+            },
+            "cleared": 3,
+            "endsAtMs": "<+441s>",
+            "perStudentCap": 4,
+            "pool": [],
+            "scores": {
+              "avery-diaz": 1,
+              "sam-okafor": 2
+            },
+            "startMinutes": 5,
+            "target": 6,
+            "won": false
+          },
+          "perStudentCap": 4,
+          "players": [
+            {
+              "cleared": 2,
+              "id": "sam-okafor",
+              "name": "Sam Okafor"
+            },
+            {
+              "cleared": 1,
+              "id": "avery-diaz",
+              "name": "Avery Diaz"
+            }
+          ],
+          "pool": [],
+          "stage": "",
+          "startMinutes": 5,
+          "state": "running",
+          "target": 6
+        },
+        "seconds": 5
+      },
+      "doc": {
+        "cfg": {
+          "minutes": 5,
+          "target": 6
+        },
+        "classCode": "rt101",
+        "code": "<CODE>",
+        "createdAt": "<TS>",
+        "game": "buytime",
+        "gs": {
+          "allHands": {
+            "chapter": "ch4",
+            "endsAt": "<TS>",
+            "qid": "ch4-09",
+            "solved": true,
+            "topic": "APIE Evaluation"
+          },
+          "cleared": 3,
+          "endsAtMs": "<+441s>",
+          "pool": []
+        },
+        "players": {
+          "avery-diaz": {
+            "cleared": 1,
+            "name": "Avery Diaz"
+          },
+          "sam-okafor": {
+            "cleared": 2,
+            "name": "Sam Okafor"
+          }
+        },
+        "stage": "",
+        "state": "running"
+      }
+    },
+    {
+      "step": "clear:sam-3",
+      "status": 200,
+      "wire": {
+        "allHands": false,
+        "atCap": false,
+        "counted": true,
+        "fromPool": false,
+        "ok": true,
+        "room": {
+          "allHands": {
+            "chapter": "ch4",
+            "endsAt": "<TS>",
+            "qid": "ch4-09",
+            "solved": true,
+            "topic": "APIE Evaluation"
+          },
+          "cleared": 4,
+          "code": "<CODE>",
+          "endsAtMs": "<+446s>",
+          "game": "buytime",
+          "gs": {
+            "allHands": {
+              "chapter": "ch4",
+              "endsAt": "<TS>",
+              "qid": "ch4-09",
+              "solved": true,
+              "topic": "APIE Evaluation"
+            },
+            "cleared": 4,
+            "endsAtMs": "<+446s>",
+            "perStudentCap": 4,
+            "pool": [],
+            "scores": {
+              "avery-diaz": 1,
+              "sam-okafor": 3
+            },
+            "startMinutes": 5,
+            "target": 6,
+            "won": false
+          },
+          "perStudentCap": 4,
+          "players": [
+            {
+              "cleared": 3,
+              "id": "sam-okafor",
+              "name": "Sam Okafor"
+            },
+            {
+              "cleared": 1,
+              "id": "avery-diaz",
+              "name": "Avery Diaz"
+            }
+          ],
+          "pool": [],
+          "stage": "",
+          "startMinutes": 5,
+          "state": "running",
+          "target": 6
+        },
+        "seconds": 5
+      },
+      "doc": {
+        "cfg": {
+          "minutes": 5,
+          "target": 6
+        },
+        "classCode": "rt101",
+        "code": "<CODE>",
+        "createdAt": "<TS>",
+        "game": "buytime",
+        "gs": {
+          "allHands": {
+            "chapter": "ch4",
+            "endsAt": "<TS>",
+            "qid": "ch4-09",
+            "solved": true,
+            "topic": "APIE Evaluation"
+          },
+          "cleared": 4,
+          "endsAtMs": "<+446s>",
+          "pool": []
+        },
+        "players": {
+          "avery-diaz": {
+            "cleared": 1,
+            "name": "Avery Diaz"
+          },
+          "sam-okafor": {
+            "cleared": 3,
+            "name": "Sam Okafor"
+          }
+        },
+        "stage": "",
+        "state": "running"
+      }
+    },
+    {
+      "step": "clear:sam-4",
+      "status": 200,
+      "wire": {
+        "allHands": false,
+        "atCap": false,
+        "counted": true,
+        "fromPool": false,
+        "ok": true,
+        "room": {
+          "allHands": {
+            "chapter": "ch4",
+            "endsAt": "<TS>",
+            "qid": "ch4-09",
+            "solved": true,
+            "topic": "APIE Evaluation"
+          },
+          "cleared": 5,
+          "code": "<CODE>",
+          "endsAtMs": "<+451s>",
+          "game": "buytime",
+          "gs": {
+            "allHands": {
+              "chapter": "ch4",
+              "endsAt": "<TS>",
+              "qid": "ch4-09",
+              "solved": true,
+              "topic": "APIE Evaluation"
+            },
+            "cleared": 5,
+            "endsAtMs": "<+451s>",
+            "perStudentCap": 4,
+            "pool": [],
+            "scores": {
+              "avery-diaz": 1,
+              "sam-okafor": 4
+            },
+            "startMinutes": 5,
+            "target": 6,
+            "won": false
+          },
+          "perStudentCap": 4,
+          "players": [
+            {
+              "cleared": 4,
+              "id": "sam-okafor",
+              "name": "Sam Okafor"
+            },
+            {
+              "cleared": 1,
+              "id": "avery-diaz",
+              "name": "Avery Diaz"
+            }
+          ],
+          "pool": [],
+          "stage": "",
+          "startMinutes": 5,
+          "state": "running",
+          "target": 6
+        },
+        "seconds": 5
+      },
+      "doc": {
+        "cfg": {
+          "minutes": 5,
+          "target": 6
+        },
+        "classCode": "rt101",
+        "code": "<CODE>",
+        "createdAt": "<TS>",
+        "game": "buytime",
+        "gs": {
+          "allHands": {
+            "chapter": "ch4",
+            "endsAt": "<TS>",
+            "qid": "ch4-09",
+            "solved": true,
+            "topic": "APIE Evaluation"
+          },
+          "cleared": 5,
+          "endsAtMs": "<+451s>",
+          "pool": []
+        },
+        "players": {
+          "avery-diaz": {
+            "cleared": 1,
+            "name": "Avery Diaz"
+          },
+          "sam-okafor": {
+            "cleared": 4,
+            "name": "Sam Okafor"
+          }
+        },
+        "stage": "",
+        "state": "running"
+      }
+    },
+    {
+      "step": "clear:sam-5",
+      "status": 200,
+      "wire": {
+        "allHands": false,
+        "atCap": true,
+        "counted": false,
+        "fromPool": false,
+        "ok": true,
+        "room": {
+          "allHands": {
+            "chapter": "ch4",
+            "endsAt": "<TS>",
+            "qid": "ch4-09",
+            "solved": true,
+            "topic": "APIE Evaluation"
+          },
+          "cleared": 5,
+          "code": "<CODE>",
+          "endsAtMs": "<+451s>",
+          "game": "buytime",
+          "gs": {
+            "allHands": {
+              "chapter": "ch4",
+              "endsAt": "<TS>",
+              "qid": "ch4-09",
+              "solved": true,
+              "topic": "APIE Evaluation"
+            },
+            "cleared": 5,
+            "endsAtMs": "<+451s>",
+            "perStudentCap": 4,
+            "pool": [],
+            "scores": {
+              "avery-diaz": 1,
+              "sam-okafor": 4
+            },
+            "startMinutes": 5,
+            "target": 6,
+            "won": false
+          },
+          "perStudentCap": 4,
+          "players": [
+            {
+              "cleared": 4,
+              "id": "sam-okafor",
+              "name": "Sam Okafor"
+            },
+            {
+              "cleared": 1,
+              "id": "avery-diaz",
+              "name": "Avery Diaz"
+            }
+          ],
+          "pool": [],
+          "stage": "",
+          "startMinutes": 5,
+          "state": "running",
+          "target": 6
+        },
+        "seconds": 0
+      },
+      "doc": {
+        "cfg": {
+          "minutes": 5,
+          "target": 6
+        },
+        "classCode": "rt101",
+        "code": "<CODE>",
+        "createdAt": "<TS>",
+        "game": "buytime",
+        "gs": {
+          "allHands": {
+            "chapter": "ch4",
+            "endsAt": "<TS>",
+            "qid": "ch4-09",
+            "solved": true,
+            "topic": "APIE Evaluation"
+          },
+          "cleared": 5,
+          "endsAtMs": "<+451s>",
+          "pool": []
+        },
+        "players": {
+          "avery-diaz": {
+            "cleared": 1,
+            "name": "Avery Diaz"
+          },
+          "sam-okafor": {
+            "cleared": 4,
+            "name": "Sam Okafor"
+          }
+        },
+        "stage": "",
+        "state": "running"
+      }
+    },
+    {
+      "step": "end",
+      "status": 200,
+      "wire": {
+        "ok": true,
+        "room": {
+          "allHands": {
+            "chapter": "ch4",
+            "endsAt": "<TS>",
+            "qid": "ch4-09",
+            "solved": true,
+            "topic": "APIE Evaluation"
+          },
+          "cleared": 5,
+          "code": "<CODE>",
+          "endsAtMs": "<+451s>",
+          "game": "buytime",
+          "gs": {
+            "allHands": {
+              "chapter": "ch4",
+              "endsAt": "<TS>",
+              "qid": "ch4-09",
+              "solved": true,
+              "topic": "APIE Evaluation"
+            },
+            "cleared": 5,
+            "endsAtMs": "<+451s>",
+            "perStudentCap": 4,
+            "pool": [],
+            "scores": {
+              "avery-diaz": 1,
+              "sam-okafor": 4
+            },
+            "startMinutes": 5,
+            "target": 6,
+            "won": false
+          },
+          "perStudentCap": 4,
+          "players": [
+            {
+              "cleared": 4,
+              "id": "sam-okafor",
+              "name": "Sam Okafor"
+            },
+            {
+              "cleared": 1,
+              "id": "avery-diaz",
+              "name": "Avery Diaz"
+            }
+          ],
+          "pool": [],
+          "stage": "",
+          "startMinutes": 5,
+          "state": "ended",
+          "target": 6
+        }
+      },
+      "doc": {
+        "cfg": {
+          "minutes": 5,
+          "target": 6
+        },
+        "classCode": "rt101",
+        "code": "<CODE>",
+        "createdAt": "<TS>",
+        "game": "buytime",
+        "gs": {
+          "allHands": {
+            "chapter": "ch4",
+            "endsAt": "<TS>",
+            "qid": "ch4-09",
+            "solved": true,
+            "topic": "APIE Evaluation"
+          },
+          "cleared": 5,
+          "endsAtMs": "<+451s>",
+          "pool": []
+        },
+        "players": {
+          "avery-diaz": {
+            "cleared": 1,
+            "name": "Avery Diaz"
+          },
+          "sam-okafor": {
+            "cleared": 4,
+            "name": "Sam Okafor"
+          }
+        },
+        "stage": "",
+        "state": "ended"
+      }
+    },
+    {
+      "step": "clear:after-end",
+      "status": 409,
+      "wire": {
+        "error": "round is not running"
+      },
+      "doc": {
+        "cfg": {
+          "minutes": 5,
+          "target": 6
+        },
+        "classCode": "rt101",
+        "code": "<CODE>",
+        "createdAt": "<TS>",
+        "game": "buytime",
+        "gs": {
+          "allHands": {
+            "chapter": "ch4",
+            "endsAt": "<TS>",
+            "qid": "ch4-09",
+            "solved": true,
+            "topic": "APIE Evaluation"
+          },
+          "cleared": 5,
+          "endsAtMs": "<+451s>",
+          "pool": []
+        },
+        "players": {
+          "avery-diaz": {
+            "cleared": 1,
+            "name": "Avery Diaz"
+          },
+          "sam-okafor": {
+            "cleared": 4,
+            "name": "Sam Okafor"
+          }
+        },
+        "stage": "",
+        "state": "ended"
+      }
+    }
+  ]
+}

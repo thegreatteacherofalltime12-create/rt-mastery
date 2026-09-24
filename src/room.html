@@ -54,7 +54,7 @@
 (function () {
   'use strict';
   var app = document.getElementById('app');
-  var S = { classCode: '', pin: '', room: null, err: '', poll: null, lastJson: '' };
+  var S = { classCode: '', pin: '', room: null, err: '', poll: null, lastJson: '', game: 'buytime' };
 
   function esc(s) {
     return String(s == null ? '' : s)
@@ -90,6 +90,9 @@
   function stopPolling() {
     if (S.poll) { clearInterval(S.poll); S.poll = null; }
   }
+  // Three room states, forever. A format that invents a fourth terminal word is
+  // invisible to every already-delivered bundle, and a projector that never
+  // recognises the end polls Firestore every four seconds until the tab closes.
   function over(r) { return !!r && (r.state === 'ended' || r.state === 'won'); }
 
   function poll() {
@@ -105,9 +108,8 @@
         // than in the document, so its state rides in the signature - one render
         // when it opens, one when it shuts.
         var rm = res.j.room;
-        var ahOpen = rm.allHands && !rm.allHands.solved &&
-                     new Date(rm.allHands.endsAt).getTime() > Date.now();
-        var j = JSON.stringify(rm) + (ahOpen ? '|ah' : '');
+        var gdef = defOf(rm);
+        var j = JSON.stringify(rm) + (gdef && gdef.sig ? gdef.sig(rm) : '');
         S.room = rm;
         if (j !== S.lastJson) { S.lastJson = j; render(); }
         if (over(S.room)) stopPolling();
@@ -124,42 +126,105 @@
   // dropped poll does not freeze it.
   function paintClock() {
     var el = document.getElementById('clock');
-    if (!el || !S.room || !S.room.endsAtMs) return;
-    var left = S.room.endsAtMs - Date.now();
+    if (!S.room) return;
+    var gdef = defOf(S.room);
+    var ends = gdef && gdef.clockMs ? gdef.clockMs(S.room) : null;
+    if (!el || !ends) return;
+    var left = ends - Date.now();
     el.textContent = mmss(left);
     el.className = 'clock' + (left < 30000 ? ' crit' : left < 60000 ? ' warn' : '');
   }
 
+  // Each format is one entry. The projector never names a game outside this
+  // object - it asks the registry for a label, a settings form and three views.
+  var GAMES = {
+    buytime: {
+      label: 'Buy Time',
+      icon: '⏱️',
+      blurb: 'One clock the whole class keeps alive. Every correct answer buys the room seconds; nothing anyone gets wrong ever costs it any.',
+      // the create-time settings this format needs
+      settings: function () {
+        return '<div class="btn-row">' +
+          '<div class="field" style="flex:1;margin:0"><label for="target">Questions to clear</label>' +
+          '<input id="target" type="number" value="40" min="5" max="200"></div>' +
+          '<div class="field" style="flex:1;margin:0"><label for="mins">Starting clock (min)</label>' +
+          '<input id="mins" type="number" value="5" min="1" max="60"></div>' +
+          '</div>';
+      },
+      // read back into the create payload
+      config: function () {
+        return {
+          target: Number(document.getElementById('target').value) || 40,
+          minutes: Number(document.getElementById('mins').value) || 5
+        };
+      },
+      // this format has a shared countdown; one with no clock omits these two
+      clockMs: function (r) { return (r.gs || r).endsAtMs || null; },
+      autoEnd: function (r) {
+        var g = r.gs || r;
+        return !!(g.endsAtMs && g.endsAtMs < Date.now() - 1500);
+      },
+      // anything that closes on the wall clock rather than on a document change
+      // has to say so, or the render that closes it never happens
+      sig: function (r) {
+        var a = (r.gs || r).allHands;
+        return a && !a.solved && new Date(a.endsAt).getTime() > Date.now() ? '|ah' : '';
+      },
+      controls: function () {
+        return [
+          { id: 'allhands', action: 'allhands' },
+          { id: 'extend', action: 'extend', extra: { seconds: 60 } }
+        ];
+      },
+      lobby: viewLobby,
+      running: viewRunning,
+      over: viewOver
+    }
+  };
+
+  function gameOf(r) { return (r && r.game) || 'buytime'; }
+  function defOf(r) { return r ? (GAMES[gameOf(r)] || null) : null; }
+
   function viewSetup() {
+    var ids = Object.keys(GAMES);
+    var pick = GAMES[S.game] ? S.game : ids[0];
+    var def = GAMES[pick];
     return '<div style="height:28px"></div>' +
-      '<div class="center"><div style="font-size:2.6rem">&#9201;&#65039;</div>' +
-      '<h1>Buy Time</h1><p class="dim">Projector view</p></div>' +
+      '<div class="center"><div style="font-size:2.6rem">' + def.icon + '</div>' +
+      '<h1>' + esc(def.label) + '</h1><p class="dim">Projector view</p></div>' +
       (S.err ? '<div class="banner warn">' + esc(S.err) + '</div>' : '') +
       '<div class="card pad-lg">' +
       '<div class="field"><label for="cc">Class code</label>' +
       '<input id="cc" placeholder="e.g. RT101" autocapitalize="characters" value="' + esc(S.classCode) + '"></div>' +
       '<div class="field"><label for="pin">Instructor PIN</label>' +
       '<input id="pin" type="password" autocomplete="off" value="' + esc(S.pin) + '"></div>' +
-      '<div class="btn-row">' +
-      '<div class="field" style="flex:1;margin:0"><label for="target">Questions to clear</label>' +
-      '<input id="target" type="number" value="40" min="5" max="200"></div>' +
-      '<div class="field" style="flex:1;margin:0"><label for="mins">Starting clock (min)</label>' +
-      '<input id="mins" type="number" value="5" min="1" max="60"></div>' +
-      '</div><div class="spacer-sm"></div>' +
+      // The picker. This is the ONLY place a game is chosen, and the choice
+      // leaves here inside the room code - she reads out four letters and says
+      // nothing else.
+      (ids.length > 1
+        ? '<div class="field"><label for="game">Game</label><select id="game">' +
+          ids.map(function (id) {
+            return '<option value="' + id + '"' + (id === pick ? ' selected' : '') + '>' +
+                   esc(GAMES[id].label) + '</option>';
+          }).join('') + '</select></div>'
+        : '') +
+      def.settings() +
+      '<div class="spacer-sm"></div>' +
       '<button class="btn" id="create">Create a room</button>' +
-      '<p class="faint" style="margin-top:12px">Students open the game and tap <b>Join live round</b>. ' +
-      'Nothing anyone gets wrong ever costs the class time.</p>' +
+      '<p class="faint" style="margin-top:12px">' + esc(def.blurb) + '</p>' +
+      '<p class="faint">Students open the game and tap <b>Join live round</b>, then type the code. ' +
+      'They never pick anything.</p>' +
       '</div>';
   }
 
   function viewLobby() {
-    var r = S.room;
-    return '<div class="topbar"><strong>Buy Time</strong><div class="spacer"></div>' +
+    var r = S.room, g = r.gs || r;
+    return '<div class="topbar"><strong>' + esc(defOf(r).label) + '</strong><div class="spacer"></div>' +
       '<span class="pill">' + r.players.length + ' joined</span></div>' +
       '<div class="card pad-lg center"><p class="dim" style="margin:0 0 4px">Room code</p>' +
       '<div class="roomcode">' + esc(r.code) + '</div>' +
-      '<p class="dim">Clear <b>' + r.target + '</b> questions before the clock runs out. ' +
-      'Starting clock <b>' + (r.startMinutes || 5) + ':00</b>.</p></div>' +
+      '<p class="dim">Clear <b>' + g.target + '</b> questions before the clock runs out. ' +
+      'Starting clock <b>' + (g.startMinutes || 5) + ':00</b>.</p></div>' +
       '<div class="card"><h3>In the room</h3>' +
       (r.players.length
         ? '<div>' + r.players.map(function (p) { return '<span class="player">' + esc(p.name) + '</span>'; }).join('') + '</div>'
@@ -169,36 +234,36 @@
   }
 
   function viewRunning() {
-    var r = S.room;
-    var pct = Math.min(100, 100 * (r.cleared || 0) / (r.target || 1));
+    var r = S.room, g = r.gs || r;
+    var pct = Math.min(100, 100 * (g.cleared || 0) / (g.target || 1));
     var h = '';
 
-    if (r.allHands && !r.allHands.solved && new Date(r.allHands.endsAt).getTime() > Date.now()) {
-      h += '<div class="allhands">&#9995; ALL HANDS &mdash; ' + esc(r.allHands.topic) +
+    if (g.allHands && !g.allHands.solved && new Date(g.allHands.endsAt).getTime() > Date.now()) {
+      h += '<div class="allhands">&#9995; ALL HANDS &mdash; ' + esc(g.allHands.topic) +
         '<div style="font-size:0.9rem;font-weight:600;margin-top:4px">on every phone now &middot; any correct answer buys 60 seconds</div></div>';
     }
 
     h += '<div class="clock" id="clock">--:--</div>' +
       '<div class="headline" style="margin-bottom:10px">' +
-      '<b>' + (r.cleared || 0) + '</b> of <b>' + r.target + '</b> cleared</div>' +
+      '<b>' + (g.cleared || 0) + '</b> of <b>' + g.target + '</b> cleared</div>' +
       '<div class="bigbar" style="margin-bottom:16px"><i style="width:' + pct.toFixed(1) + '%"></i></div>';
 
     h += '<div class="card"><h3 style="margin-bottom:4px">Open pool &mdash; nobody could clear these</h3>' +
       '<p class="faint" style="margin:0 0 10px">Anyone can take one. Worth double. No names, ever.</p>' +
-      (r.pool.length
-        ? '<div>' + r.pool.map(function (p) { return '<span class="poolchip">' + esc(p.topic) + '</span>'; }).join('') + '</div>'
+      (g.pool.length
+        ? '<div>' + g.pool.map(function (p) { return '<span class="poolchip">' + esc(p.topic) + '</span>'; }).join('') + '</div>'
         : '<p class="dim" style="margin:0">Empty. The room is clearing everything.</p>') +
       '</div>';
 
     h += '<div class="card"><h3>Contributing</h3><div>' +
       r.players.map(function (p) {
-        return '<span class="player">' + esc(p.name) + ' <b>' + (p.cleared || 0) + '</b></span>';
+        return '<span class="player">' + esc(p.name) + ' <b>' + ((g.scores || {})[p.id] || 0) + '</b></span>';
       }).join('') +
       '</div><p class="faint" style="margin:10px 0 0">Nobody may clear more than ' +
-      r.perStudentCap + ' &mdash; it takes most of the room to finish.</p></div>';
+      g.perStudentCap + ' &mdash; it takes most of the room to finish.</p></div>';
 
     h += '<div class="ctl">' +
-      '<button class="btn ghost sm" id="allhands"' + (r.pool.length ? '' : ' disabled') + '>&#9995; All hands</button>' +
+      '<button class="btn ghost sm" id="allhands"' + (g.pool.length ? '' : ' disabled') + '>&#9995; All hands</button>' +
       '<button class="btn ghost sm" id="extend">+60 seconds</button>' +
       '<button class="btn ghost sm" id="end">End round</button>' +
       '</div>';
@@ -206,56 +271,81 @@
   }
 
   function viewOver() {
-    var r = S.room;
-    var won = r.state === 'won' || (r.cleared || 0) >= r.target;
+    var r = S.room, g = r.gs || r;
+    // Victory is a fact the game records, not a room state.
+    var won = g.won === true || r.state === 'won' || (g.cleared || 0) >= g.target;
     return '<div class="center" style="margin-top:18px">' +
       '<div style="font-size:3.2rem">' + (won ? '&#127881;' : '&#9203;') + '</div>' +
       '<h1>' + (won ? 'The room made it' : 'Clock ran out') + '</h1>' +
-      '<p class="dim">' + (r.cleared || 0) + ' of ' + r.target + ' cleared</p></div>' +
+      '<p class="dim">' + (g.cleared || 0) + ' of ' + g.target + ' cleared</p></div>' +
       '<div class="card"><h3>Teach these next</h3>' +
       '<p class="faint" style="margin:0 0 10px">What nobody in the room could clear. This is the lesson plan.</p>' +
-      (r.pool.length
-        ? '<div>' + r.pool.map(function (p) { return '<span class="poolchip">' + esc(p.topic) + '</span>'; }).join('') + '</div>'
+      (g.pool.length
+        ? '<div>' + g.pool.map(function (p) { return '<span class="poolchip">' + esc(p.topic) + '</span>'; }).join('') + '</div>'
         : '<p class="dim" style="margin:0">Nothing survived the pool. They know it.</p>') +
       '</div>' +
       '<div class="card"><h3>Everyone contributed</h3><div>' +
-      r.players.map(function (p) { return '<span class="player">' + esc(p.name) + ' <b>' + (p.cleared || 0) + '</b></span>'; }).join('') +
+      r.players.map(function (p) { return '<span class="player">' + esc(p.name) + ' <b>' + ((g.scores || {})[p.id] || 0) + '</b></span>'; }).join('') +
       '</div></div>' +
       '<button class="btn" id="again">New round</button>';
   }
 
   function render() {
     var r = S.room;
-    if (!r) app.innerHTML = viewSetup();
-    else if (r.state === 'lobby') app.innerHTML = viewLobby();
-    else if (r.state === 'running') app.innerHTML = viewRunning();
-    else app.innerHTML = viewOver();
+    if (!r) { app.innerHTML = viewSetup(); bind(); paintClock(); return; }
+    var def = defOf(r);
+    if (!def) {
+      // A room naming a game this projector does not have. Say so plainly -
+      // never fall back to another game's board, which would look correct.
+      app.innerHTML = '<div class="center" style="margin-top:40px">' +
+        '<div style="font-size:3rem">↻</div><h1>Update this page</h1>' +
+        '<p class="dim">This room is running <b>' + esc(gameOf(r)) + '</b>, which this ' +
+        'projector page does not know yet. Reload, then create the room again.</p></div>' +
+        '<button class="btn" id="again">Back to setup</button>';
+      bind(); return;
+    }
+    app.innerHTML = r.state === 'lobby' ? def.lobby()
+                  : r.state === 'running' ? def.running()
+                  : def.over();
     bind();
     paintClock();
   }
 
   function bind() {
+    // Picking a game re-renders the setup form, because each format asks for
+    // different settings.
+    var sel = document.getElementById('game');
+    if (sel) sel.onchange = function () { S.game = sel.value; render(); };
+
     var c = document.getElementById('create');
     if (c) c.onclick = function () {
       S.classCode = document.getElementById('cc').value.trim();
       S.pin = document.getElementById('pin').value;
       if (!S.classCode || !S.pin) { S.err = 'Class code and PIN are both needed.'; render(); return; }
-      try { sessionStorage.setItem('rt-room', JSON.stringify({ c: S.classCode, p: S.pin })); } catch (e) {}
-      control('create', {
-        target: Number(document.getElementById('target').value) || 40,
-        minutes: Number(document.getElementById('mins').value) || 5
-      });
+      try { sessionStorage.setItem('rt-room', JSON.stringify({ c: S.classCode, p: S.pin, g: S.game })); } catch (e) {}
+      var def = GAMES[S.game] || GAMES.buytime;
+      // the game id rides with the create; from here on the room carries it
+      control('create', Object.assign({ game: S.game }, def.config()));
     };
+
     var s = document.getElementById('start'); if (s) s.onclick = function () { control('start'); };
-    var a = document.getElementById('allhands'); if (a) a.onclick = function () { control('allhands'); };
-    var e = document.getElementById('extend'); if (e) e.onclick = function () { control('extend', { seconds: 60 }); };
-    var x = document.getElementById('end'); if (x) x.onclick = function () { control('end'); };
-    var g = document.getElementById('again'); if (g) g.onclick = function () { S.room = null; render(); };
+    var x = document.getElementById('end');   if (x) x.onclick = function () { control('end'); };
+    var g = document.getElementById('again'); if (g) g.onclick = function () { S.room = null; S.lastJson = ''; render(); };
+
+    // Per-game controls. Each format declares its own, so two formats can both
+    // have a button without one silently firing the other's verb.
+    var def = defOf(S.room);
+    if (def && def.controls) {
+      def.controls().forEach(function (ctl) {
+        var el = document.getElementById(ctl.id);
+        if (el) el.onclick = function () { control(ctl.action, ctl.extra || {}); };
+      });
+    }
   }
 
   try {
     var prev = JSON.parse(sessionStorage.getItem('rt-room') || 'null');
-    if (prev) { S.classCode = prev.c || ''; S.pin = prev.p || ''; }
+    if (prev) { S.classCode = prev.c || ''; S.pin = prev.p || ''; S.game = prev.g || 'buytime'; }
   } catch (e) {}
 
   // If the clock runs out, close the round so the projector stops counting down.
@@ -264,8 +354,8 @@
   var ending = false;
   setInterval(function () {
     if (ending) return;
-    if (S.room && S.room.state === 'running' && S.room.endsAtMs &&
-        S.room.endsAtMs < Date.now() - 1500) {
+    var gdef = defOf(S.room);
+    if (S.room && S.room.state === 'running' && gdef && gdef.autoEnd && gdef.autoEnd(S.room)) {
       ending = true;
       control('end').then(function () { ending = false; });
     }

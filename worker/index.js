@@ -325,6 +325,41 @@ const POOL_MULTIPLIER = 2;                // clearing someone else's miss is wor
 const ALL_HANDS_BONUS = 60;
 const MAX_SHARE = 0.6;                    // no one student may clear more than this share
 
+// ------------------------------------------------------------------ the seam
+//
+// A room code carries which game to play. The instructor picks on the
+// projector, the choice is written once into the room document at create, and
+// every poller already reading that document gets it for free. There is no
+// manifest, no second collection and no new request: adding a game must never
+// touch the hot path.
+//
+// The room owns identity and lifecycle - code, class, game, state, stage, who
+// is present. Everything a format needs beyond that lives in two fields it
+// owns outright: `cfg` (what the instructor chose, never mutated) and `gs`
+// (game state). That split is what lets a whole game be swapped in one write.
+
+const DEFAULT_GAME = 'buytime';
+
+// The legacy flat mirror. Before the seam, Buy Time's fields sat at the top
+// level of the wire object, and every phone and projector in the building is
+// still running a bundle that reads them there. Emitting both shapes makes
+// this deploy invisible to a client that has not reloaded. Delete it - and the
+// mirror block in buytime.project - once a class has been through where every
+// device reloaded at least once.
+const LEGACY_FLAT = true;
+
+function gameOf(room) { return (room && room.game) || DEFAULT_GAME; }
+function defOf(room) { return GAMES[gameOf(room)] || null; }
+
+// The terminal predicate. There are three room states and there will never be
+// a fourth: a format that invents its own terminal word is invisible to every
+// already-delivered bundle, and a client that never recognises the end polls
+// Firestore every four seconds forever. 'won' is accepted for one release so
+// rooms straddling the deploy still read as finished.
+function isOver(room) {
+  return !!room && (room.state === 'ended' || room.state === 'won');
+}
+
 // Firestore is billed per document read and per document write, so the whole
 // game here is collapsing many callers into few operations.
 //
@@ -351,7 +386,7 @@ async function readRoom(env, classCode, roomCode, maxAgeMs) {
   // Only the DEFAULT is relaxed for a finished round. A caller that explicitly
   // asked for a fresh read is about to mutate the room and still gets one.
   const cached = roomCache.key === key ? roomCache.value : null;
-  if (maxAgeMs === undefined && cached && (cached.state === 'ended' || cached.state === 'won')) {
+  if (maxAgeMs === undefined && isOver(cached)) {
     age = TERMINAL_CACHE_MS;
   }
   if (roomCache.key === key && Date.now() - roomCache.at < age) return roomCache.value;
@@ -458,23 +493,242 @@ function makeRoomCode() {
   return out;
 }
 
+// Every format is one entry here. A format owns its own create defaults, its
+// own projection onto the wire, and its own verbs - and nothing outside its
+// entry may name it.
+const GAMES = {
+  buytime: {
+    label: 'Buy Time',
+    blurb: 'One clock the whole class keeps alive',
+
+    // What the instructor chose. Clamped here, never mutated afterwards.
+    config(body) {
+      return {
+        target: Math.min(200, Math.max(5, Number(body.target) || 40)),
+        minutes: Math.min(60, Math.max(1, Number(body.minutes) || 5))
+      };
+    },
+
+    newState() {
+      return { cleared: 0, endsAtMs: 0, pool: [], allHands: null };
+    },
+
+    project(room) {
+      // `|| room` reads a room created before the seam shipped, where these
+      // fields sat at the top level. Deletable at the end of the semester.
+      const cfg = room.cfg || room;
+      const gs = room.gs || room;
+      const players = room.players || {};
+      const cap = Math.max(1, Math.ceil((cfg.target || 40) * MAX_SHARE));
+      const scores = {};
+      for (const id of Object.keys(players)) scores[id] = players[id].cleared || 0;
+      return {
+        target: cfg.target,
+        startMinutes: cfg.minutes || cfg.startMinutes || 5,
+        cleared: gs.cleared || 0,
+        endsAtMs: gs.endsAtMs || null,
+        pool: (gs.pool || []).map((p) => ({ qid: p.qid, topic: p.topic, chapter: p.chapter })),
+        allHands: gs.allHands || null,
+        won: !!gs.won,
+        scores: scores,
+        perStudentCap: cap
+      };
+    },
+
+    // Buy Time's clock starts when she does. A format with no clock simply
+    // omits this hook.
+    onStart(room, set) {
+      const cfg = room.cfg || {};
+      room.gs.endsAtMs = set['gs.endsAtMs'] =
+        Date.now() + (cfg.minutes || 5) * 60000;
+    },
+
+    // Verbs this format adds to the generic start/end. The namespace is
+    // per-game, so two formats may both have a 'draw' without colliding.
+    actions: {
+      allhands(room, set) {
+        const pool = room.gs.pool || [];
+        if (!pool.length) return 'the pool is empty';
+        const pick = pool[0];
+        room.gs.allHands = set['gs.allHands'] = {
+          qid: pick.qid, topic: pick.topic, chapter: pick.chapter,
+          endsAt: new Date(Date.now() + 35000).toISOString(), solved: false
+        };
+      },
+
+      extend(room, set, inc, body) {
+        const add = Math.min(300, Math.max(10, Number(body.seconds) || 60));
+        // While the clock is live this has to be an increment, or it wipes the
+        // seconds the class bought during the round trip. Once it has run out
+        // there is nothing to add to, so set a fresh deadline instead.
+        if ((room.gs.endsAtMs || 0) > Date.now()) {
+          inc['gs.endsAtMs'] = add * 1000;
+          room.gs.endsAtMs = room.gs.endsAtMs + add * 1000;
+        } else {
+          room.gs.endsAtMs = set['gs.endsAtMs'] = Date.now() + add * 1000;
+        }
+      }
+    },
+
+    events: {
+      // A miss costs the room nothing. It drops into the pool anonymously -
+      // the projector shows topic tags only, never who put it there.
+      async miss(room, ctx) {
+        const qid = String(ctx.body.qid || '').slice(0, 40);
+        // Already in the pool? Then there is nothing to write at all.
+        if (!qid || room.gs.pool.some((p) => p.qid === qid)) return { seconds: 0 };
+        room.gs.pool.push({
+          qid: qid,
+          topic: String(ctx.body.topic || '').slice(0, 60),
+          chapter: String(ctx.body.chapter || '').slice(0, 12)
+        });
+        if (room.gs.pool.length > 40) room.gs.pool.shift();
+        await ctx.commit({ set: { 'gs.pool': room.gs.pool } });
+        return { seconds: 0 };
+      },
+
+      async clear(room, ctx) {
+        const qid = String(ctx.body.qid || '').slice(0, 40);
+        const cap = Math.max(1, Math.ceil((room.cfg.target || 40) * MAX_SHARE));
+        const mine = (room.players[ctx.studentId] || {}).cleared || 0;
+        const counted = mine < cap;
+
+        // Seconds are derived server-side from the level and speed bucket the
+        // client reports, both clamped. The client never names its own reward.
+        const level = Math.min(3, Math.max(1, Number(ctx.body.level) || 1));
+        const bucket = Math.min(2, Math.max(0, Number(ctx.body.bucket) || 0));
+        let seconds = SECONDS[level][bucket];
+
+        const fromPool = !!ctx.body.fromPool && room.gs.pool.some((p) => p.qid === qid);
+        if (fromPool) {
+          seconds *= POOL_MULTIPLIER;
+          room.gs.pool = room.gs.pool.filter((p) => p.qid !== qid);
+        }
+
+        const ah = room.gs.allHands;
+        const answeringAllHands = ah && !ah.solved && ah.qid === qid &&
+          Date.now() < new Date(ah.endsAt).getTime();
+        if (answeringAllHands) {
+          seconds = ALL_HANDS_BONUS;
+          room.gs.allHands.solved = true;
+          room.gs.pool = room.gs.pool.filter((p) => p.qid !== qid);
+        }
+
+        if (!counted && !fromPool && !answeringAllHands) seconds = 0;
+        const scores = counted || fromPool || answeringAllHands;
+
+        // ONE write, all of it atomic. Counters and the deadline are
+        // increments, so simultaneous clears add up instead of overwriting.
+        const set = {};
+        const inc = {};
+        if (seconds > 0) inc['gs.endsAtMs'] = seconds * 1000;
+        if (scores) {
+          inc['gs.cleared'] = 1;
+          inc[fieldPath(['players', ctx.studentId, 'cleared'])] = 1;
+        }
+        if (fromPool || answeringAllHands) set['gs.pool'] = room.gs.pool;
+        if (answeringAllHands) set['gs.allHands'] = room.gs.allHands;
+
+        // Optimistically mirror the change so the next poll is served from cache.
+        room.gs.cleared = (room.gs.cleared || 0) + (scores ? 1 : 0);
+        if (scores) room.players[ctx.studentId].cleared = mine + 1;
+        if (seconds > 0) room.gs.endsAtMs = (room.gs.endsAtMs || Date.now()) + seconds * 1000;
+
+        // Victory is a game fact, not a room state. The room still ends with
+        // the one terminal word every delivered bundle already tests for, and
+        // those bundles derive their own headline from cleared >= target.
+        if (room.gs.cleared >= (room.cfg.target || 40)) {
+          room.gs.won = true; set['gs.won'] = true;
+          room.state = 'ended'; set.state = 'ended';
+        }
+
+        if (Object.keys(set).length || Object.keys(inc).length) await ctx.commit({ set, inc });
+
+        return {
+          seconds: seconds, counted: counted, atCap: !counted,
+          fromPool: fromPool, allHands: answeringAllHands
+        };
+      }
+    }
+  }
+};
+
+// Verbs are checked before a read is paid for, and the room's game is not
+// known until after it. So the cheap check is against the union of every
+// game's verbs; the per-game check happens once the document is in hand.
+const SPINE_ACTIONS = ['create', 'start', 'end'];
+const ALL_ACTIONS = new Set(SPINE_ACTIONS.concat(
+  ...Object.keys(GAMES).map((g) => Object.keys(GAMES[g].actions || {}))));
+
+/**
+ * Rebuild a document written before the seam into the new shape, in memory.
+ *
+ * A room lives three hours, so this only ever sees a round that was already
+ * running when the seam deployed. The caller writes the whole document back
+ * once - a masked write cannot be used here, because a mask plus an increment
+ * on overlapping paths in one commit is not worth reasoning about for a case
+ * this rare. Deletable once no pre-seam room can still be alive.
+ */
+function migrateRoom(room) {
+  room.game = DEFAULT_GAME;
+  room.stage = room.stage || '';
+  room.cfg = { target: room.target, minutes: room.startMinutes };
+  room.gs = {
+    cleared: room.cleared || 0,
+    endsAtMs: room.endsAtMs || 0,
+    pool: room.pool || [],
+    allHands: room.allHands || null
+  };
+  delete room.target; delete room.startMinutes; delete room.cleared;
+  delete room.endsAtMs; delete room.pool; delete room.allHands;
+  return room;
+}
+
+/**
+ * The projection wall.
+ *
+ * Everything a poller receives is produced here, and the per-game half is
+ * produced ENTIRELY by that game's own project(). Before the seam this
+ * function synthesised a plausible Buy Time scoreboard for any document it was
+ * handed - `perStudentCap: 24` out of a `|| 40` fallback, `cleared: 0`,
+ * `pool: []` - so a second game would not have failed loudly, it would have
+ * shown a confident wrong board on a projector in front of a class.
+ */
 function publicRoom(room) {
   if (!room) return null;
   const players = room.players || {};
-  return {
+  const def = defOf(room);
+
+  const out = {
     code: room.code,
+    game: gameOf(room),
     state: room.state,
-    target: room.target,
-    startMinutes: room.startMinutes || 5,
-    cleared: room.cleared || 0,
-    endsAtMs: room.endsAtMs || null,
-    pool: (room.pool || []).map((p) => ({ qid: p.qid, topic: p.topic, chapter: p.chapter })),
-    allHands: room.allHands || null,
-    players: Object.keys(players).map((id) => ({
-      id: id, name: players[id].name, cleared: players[id].cleared || 0
-    })).sort((a, b) => b.cleared - a.cleared),
-    perStudentCap: Math.max(1, Math.ceil((room.target || 40) * MAX_SHARE))
+    stage: room.stage || '',
+    // Sorted by id: stable, meaningless, and deliberately NOT a ranking. The
+    // old descending-by-score sort shipped a permanent public last place to
+    // any format that reused this projection without asking for one.
+    players: Object.keys(players).sort().map((id) => ({ id: id, name: players[id].name })),
+    gs: def ? def.project(room) : null
   };
+
+  // Legacy flat mirror - see LEGACY_FLAT. Buy Time only, and byte-identical to
+  // what this function returned before the seam, so an un-reloaded phone
+  // cannot tell the difference.
+  if (LEGACY_FLAT && gameOf(room) === 'buytime' && out.gs) {
+    const g = out.gs;
+    out.target = g.target;
+    out.startMinutes = g.startMinutes;
+    out.cleared = g.cleared;
+    out.endsAtMs = g.endsAtMs;
+    out.pool = g.pool;
+    out.allHands = g.allHands;
+    out.perStudentCap = g.perStudentCap;
+    out.players = Object.keys(players).map((id) => ({
+      id: id, name: players[id].name, cleared: players[id].cleared || 0
+    })).sort((a, b) => b.cleared - a.cleared);
+  }
+
+  return out;
 }
 
 async function handleRoomControl(request, env) {
@@ -489,14 +743,21 @@ async function handleRoomControl(request, env) {
   const action = String(body.action || '');
 
   if (action === 'create') {
-    const target = Math.min(200, Math.max(5, Number(body.target) || 40));
-    const minutes = Math.min(60, Math.max(1, Number(body.minutes) || 5));
+    // THE SEAM. The instructor's choice is written once, here, and every
+    // poller reads it for free off a document they already fetch. The room
+    // code itself stays opaque - four consonants that cannot spell anything
+    // and cannot be misheard across a classroom.
+    const game = String(body.game || DEFAULT_GAME);
+    const def = GAMES[game];
+    if (!def) return json({ error: 'unknown game' }, 400);
     const code = makeRoomCode();
     const room = {
-      code: code, classCode: classCode, state: 'lobby',
-      target: target, startMinutes: minutes, cleared: 0,
-      endsAtMs: 0, pool: [], players: {}, allHands: null,
-      createdAt: new Date().toISOString()
+      code: code, classCode: classCode, game: game,
+      state: 'lobby', stage: '',
+      cfg: def.config(body),
+      gs: def.newState(),
+      players: {},
+      createdAt: new Date().toISOString()   // load-bearing: the TTL check reads it
     };
     await writeRoom(env, classCode, code, room);
     return json({ ok: true, room: publicRoom(room) });
@@ -504,8 +765,9 @@ async function handleRoomControl(request, env) {
 
   const roomCode = String(body.code || '').toUpperCase();
   if (!/^[A-Z]{4}$/.test(roomCode)) return json({ error: 'bad room code' }, 400);
-  // Reject a bad action before it costs a read.
-  if (!['start', 'allhands', 'extend', 'end'].includes(action)) {
+  // Reject a bad action before it costs a read. The room's game is not known
+  // yet, so this checks the union; the per-game check is below.
+  if (!ALL_ACTIONS.has(action) || action === 'create') {
     return json({ error: 'unknown action' }, 400);
   }
 
@@ -515,34 +777,26 @@ async function handleRoomControl(request, env) {
   const room = await readRoom(env, classCode, roomCode);
   if (!room) return json({ error: 'room not found' }, 404);
 
+  if (!room.game) { migrateRoom(room); await writeRoom(env, classCode, roomCode, room); }
+  const def = defOf(room);
+  if (!def) return json({ error: 'unknown game', game: gameOf(room) }, 400);
+
   const set = {};
   const inc = {};
 
   if (action === 'start') {
     room.state = set.state = 'running';
-    room.endsAtMs = set.endsAtMs = Date.now() + room.startMinutes * 60000;
-  } else if (action === 'allhands') {
-    const pool = room.pool || [];
-    if (!pool.length) return json({ error: 'the pool is empty' }, 400);
-    const pick = pool[0];
-    room.allHands = set.allHands = {
-      qid: pick.qid, topic: pick.topic, chapter: pick.chapter,
-      endsAt: new Date(Date.now() + 35000).toISOString(), solved: false
-    };
-  } else if (action === 'extend') {
-    const add = Math.min(300, Math.max(10, Number(body.seconds) || 60));
-    // While the clock is still live, +60 has to be an increment, or it would
-    // wipe the seconds the class bought during the round trip. Once it has run
-    // out there is nothing left to add to, so set a fresh deadline instead -
-    // that clamp is the whole reason the button is usable when it is reached for.
-    if ((room.endsAtMs || 0) > Date.now()) {
-      inc.endsAtMs = add * 1000;
-      room.endsAtMs = room.endsAtMs + add * 1000;
-    } else {
-      room.endsAtMs = set.endsAtMs = Date.now() + add * 1000;
-    }
-  } else {
+    if (def.onStart) def.onStart(room, set, inc);
+  } else if (action === 'end') {
+    // 'ended' is the only terminal word this Worker ever writes. Every bundle
+    // already delivered tests for it, so a phone that has never heard of this
+    // room's game still knows to stop polling.
     room.state = set.state = 'ended';
+  } else {
+    const fn = def.actions && def.actions[action];
+    if (!fn) return json({ error: 'action not available in this game' }, 400);
+    const err = fn(room, set, inc, body);
+    if (err) return json({ error: err }, 400);
   }
 
   await commitRoom(env, classCode, roomCode, { set, inc, local: room });
@@ -579,16 +833,27 @@ async function handleRoomEvent(request, env) {
   const room = await readRoom(env, classCode, roomCode);
   if (!room) return json({ error: 'room not found' }, 404);
 
+  if (!room.game) { migrateRoom(room); await writeRoom(env, classCode, roomCode, room); }
+
   room.players = room.players || {};
-  room.pool = room.pool || [];
+  room.gs = room.gs || {};
+  room.cfg = room.cfg || {};
   const known = !!room.players[studentId];
-  if (!known) room.players[studentId] = { name: name, cleared: 0 };
 
   const type = String(body.type || '');
 
   if (type === 'join') {
+    // A phone tells the room which games its bundle can actually play. An old
+    // bundle omits the list, and is assumed to know only Buy Time. Refusing
+    // here - before the player write - means a client that cannot play never
+    // costs a write and never appears in the room it cannot render.
+    const can = Array.isArray(body.games) && body.games.length ? body.games : [DEFAULT_GAME];
+    if (!can.includes(gameOf(room))) {
+      return json({ error: 'client out of date', game: gameOf(room) }, 426);
+    }
     // Only pay for a write when this student is actually new to the room.
     if (!known) {
+      room.players[studentId] = { name: name, cleared: 0 };
       await commitRoom(env, classCode, roomCode, {
         set: { ['players.' + studentId]: { name: name, cleared: 0 } },
         local: room
@@ -597,82 +862,33 @@ async function handleRoomEvent(request, env) {
     return json({ ok: true, room: publicRoom(room) });
   }
 
+  // Past join, this Worker must actually implement the game. A room naming a
+  // game we have no handler for means a client newer than this deployment.
+  const def = defOf(room);
+  if (!def) return json({ error: 'unknown game', game: gameOf(room) }, 400);
+
+  if (!known) room.players[studentId] = { name: name, cleared: 0 };
+
   if (room.state !== 'running') return json({ error: 'round is not running' }, 409);
 
-  const qid = String(body.qid || '').slice(0, 40);
-  const topic = String(body.topic || '').slice(0, 60);
-  const chapter = String(body.chapter || '').slice(0, 12);
+  // The guard. Without it the only gate is state === 'running', so a student's
+  // stale tab posting a Buy Time 'clear' at a Field Day room runs Buy Time
+  // scoring against a document that has none of its fields.
+  const fn = def.events && def.events[type];
+  if (!fn) return json({ error: 'event not available in this game' }, 400);
 
-  if (type === 'miss') {
-    // A miss costs the room nothing. It drops into the pool anonymously - the
-    // projector shows topic tags only, never who put it there.
-    // Already in the pool? Then there is nothing to write at all.
-    if (!qid || room.pool.some((p) => p.qid === qid)) {
-      return json({ ok: true, seconds: 0, room: publicRoom(room) });
-    }
-    room.pool.push({ qid: qid, topic: topic, chapter: chapter });
-    if (room.pool.length > 40) room.pool.shift();
-    await commitRoom(env, classCode, roomCode, { set: { pool: room.pool }, local: room });
-    return json({ ok: true, seconds: 0, room: publicRoom(room) });
-  }
+  const out = await fn(room, {
+    studentId: studentId,
+    name: name,
+    body: body,
+    // commit() supplies `local` for the caller. Forgetting it blows the room
+    // cache with no symptom at all beyond every poller paying for a read, so
+    // it is not left to whoever writes the next game.
+    commit: (w) => commitRoom(env, classCode, roomCode, Object.assign({ local: room }, w))
+  });
 
-  if (type === 'clear') {
-    const cap = Math.max(1, Math.ceil((room.target || 40) * MAX_SHARE));
-    const mine = room.players[studentId].cleared || 0;
-    const counted = mine < cap;
-
-    // Seconds are derived server-side from the level and speed bucket the client
-    // reports, both clamped. The client never names its own reward.
-    const level = Math.min(3, Math.max(1, Number(body.level) || 1));
-    const bucket = Math.min(2, Math.max(0, Number(body.bucket) || 0));
-    let seconds = SECONDS[level][bucket];
-
-    const fromPool = !!body.fromPool && room.pool.some((p) => p.qid === qid);
-    if (fromPool) {
-      seconds *= POOL_MULTIPLIER;
-      room.pool = room.pool.filter((p) => p.qid !== qid);
-    }
-
-    const answeringAllHands = room.allHands && !room.allHands.solved && room.allHands.qid === qid
-      && Date.now() < new Date(room.allHands.endsAt).getTime();
-    if (answeringAllHands) {
-      seconds = ALL_HANDS_BONUS;
-      room.allHands.solved = true;
-      room.pool = room.pool.filter((p) => p.qid !== qid);
-    }
-
-    if (!counted && !fromPool && !answeringAllHands) seconds = 0;
-    const scores = counted || fromPool || answeringAllHands;
-
-    // ONE write, all of it atomic. Counters and the deadline are increments, so
-    // simultaneous clears add up instead of overwriting each other.
-    const set = {};
-    const inc = {};
-    if (seconds > 0) inc.endsAtMs = seconds * 1000;
-    if (scores) {
-      inc.cleared = 1;
-      inc[fieldPath(['players', studentId, 'cleared'])] = 1;
-    }
-    if (fromPool || answeringAllHands) set.pool = room.pool;
-    if (answeringAllHands) set.allHands = room.allHands;
-
-    // Optimistically mirror the change so the next poll is served from cache.
-    room.cleared = (room.cleared || 0) + (scores ? 1 : 0);
-    if (scores) room.players[studentId].cleared = mine + 1;
-    if (seconds > 0) room.endsAtMs = (room.endsAtMs || Date.now()) + seconds * 1000;
-    if (room.cleared >= (room.target || 40)) { room.state = 'won'; set.state = 'won'; }
-
-    if (Object.keys(set).length || Object.keys(inc).length) {
-      await commitRoom(env, classCode, roomCode, { set, inc, local: room });
-    }
-    return json({
-      ok: true, seconds: seconds, counted: counted,
-      atCap: !counted, fromPool: fromPool, allHands: answeringAllHands,
-      room: publicRoom(room)
-    });
-  }
-
-  return json({ error: 'unknown event type' }, 400);
+  if (out && out.error) return json({ error: out.error }, out.status || 400);
+  return json(Object.assign({ ok: true }, out || {}, { room: publicRoom(room) }));
 }
 
 // ---------------------------------------------------------------- entry

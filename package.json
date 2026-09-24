@@ -7,7 +7,9 @@
     "build": "node build.js",
     "dev": "node build.js && node dev-server.js",
     "preview": "npm run build && wrangler dev",
-    "deploy": "npm run build && wrangler deploy"
+    "deploy": "npm test && npm run build && wrangler deploy",
+    "test": "node test/round.mjs --check && node test/seam.mjs",
+    "test:save": "node test/round.mjs --save"
   },
   "devDependencies": {
     "wrangler": "^3.90.0"
