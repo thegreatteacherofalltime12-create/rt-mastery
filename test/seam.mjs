@@ -36,6 +36,10 @@ async function call(method, path, body) {
 // ---------------------------------------------------------------------------
 // 1. An unknown game must never be rendered as Buy Time.
 //
+// liarstable is designed in GAMES.md and deliberately NOT built, so it stays a
+// genuine unknown. Do not use a real game id here - the day it ships, this test
+// silently stops testing anything.
+//
 // Before the seam, publicRoom was a whitelist with `|| 40` and `|| 5`
 // fallbacks, so ANY document came back as a plausible Buy Time board:
 // cleared 0, pool [], perStudentCap 24. Both clients rendered it happily. The
@@ -43,7 +47,7 @@ async function call(method, path, body) {
 // wrong scoreboard on a projector in front of a class.
 // ---------------------------------------------------------------------------
 fs.seed(P('AAAA'), {
-  code: 'AAAA', classCode: CLASS, game: 'fieldday', state: 'running', stage: 'lap2',
+  code: 'AAAA', classCode: CLASS, game: 'liarstable', state: 'running', stage: 'lap2',
   cfg: { lanes: 5 }, gs: { lanes: [3, 1, 4, 0, 2] },
   players: { 'avery-diaz': { name: 'Avery Diaz' } },
   createdAt: new Date().toISOString()
@@ -51,7 +55,7 @@ fs.seed(P('AAAA'), {
 
 const unknown = await call('GET', `/api/room?classCode=${CLASS}&code=AAAA`);
 check('an unknown game still returns the room', unknown.status === 200, 'got ' + unknown.status);
-check('an unknown game names itself on the wire', unknown.j.room && unknown.j.room.game === 'fieldday');
+check('an unknown game names itself on the wire', unknown.j.room && unknown.j.room.game === 'liarstable');
 check('an unknown game carries its stage', unknown.j.room.stage === 'lap2');
 check('an unknown game has NO fabricated Buy Time board',
       unknown.j.room.target === undefined &&
@@ -70,7 +74,7 @@ fs.resetCounters();
 const stale = await call('POST', '/api/room/event',
   { classCode: CLASS, code: 'AAAA', name: 'Sam Okafor', type: 'join', games: ['buytime'] });
 check('a stale client is refused', stale.status === 426, 'got ' + stale.status);
-check('the refusal names the game it cannot play', stale.j.game === 'fieldday');
+check('the refusal names the game it cannot play', stale.j.game === 'liarstable');
 check('a refused client costs no write', fs.writes.length === 0, fs.writes.length + ' write(s)');
 check('a refused client is not added to the room',
       !fs.get(P('AAAA')).players['sam-okafor']);
@@ -78,7 +82,7 @@ check('a refused client is not added to the room',
 // a client that DOES know the game is admitted
 fs.resetCounters();
 const current = await call('POST', '/api/room/event',
-  { classCode: CLASS, code: 'AAAA', name: 'Sam Okafor', type: 'join', games: ['buytime', 'fieldday'] });
+  { classCode: CLASS, code: 'AAAA', name: 'Sam Okafor', type: 'join', games: ['buytime', 'liarstable'] });
 check('a current client is admitted', current.status === 200, 'got ' + current.status);
 
 // ---------------------------------------------------------------------------

@@ -170,6 +170,13 @@ function build() {
   const contentJS = 'window.RT_CONTENT=' + JSON.stringify(payload) + ';';
 
   fs.writeFileSync(path.join(DIST, 'content.js'), contentJS);
+
+  // The projector labels one lane per chapter, so it needs their names - but it
+  // has no business carrying 236 questions to get them. This is the manifest
+  // only: id, number, title. A few hundred bytes against ~200KB.
+  const manifest = shipped.map((c) => ({ id: c.id, number: c.number, title: c.title }));
+  fs.writeFileSync(path.join(DIST, 'chapters.js'),
+    'window.RT_CHAPTERS=' + JSON.stringify(manifest) + ';');
   for (const f of ['index.html', 'styles.css', 'app.js', 'dashboard.html', 'room.html']) {
     fs.copyFileSync(path.join(SRC, f), path.join(DIST, f));
   }

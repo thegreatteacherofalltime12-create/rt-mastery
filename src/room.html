@@ -46,10 +46,27 @@
   }
   .ctl { display: flex; flex-wrap: wrap; gap: 8px; }
   .ctl .btn { flex: 1 1 130px; }
+
+  /* Field Day: five lanes and nothing else. The absence of any per-student
+     number on this screen is the straggler design, not an omission. */
+  .lanes { display: flex; flex-direction: column; gap: 14px; margin: 18px 0; }
+  .lane { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 12px 14px; }
+  .lane.lead { border-color: var(--accent); }
+  .lane.focus { border-color: var(--bad); }
+  .lane-top { display: flex; align-items: baseline; gap: 10px; margin-bottom: 8px; }
+  .lane-name { font-weight: 700; font-size: 1.05rem; flex: 1; }
+  .lane-focus { font-size: 0.7rem; font-weight: 800; letter-spacing: 0.06em; color: var(--bad); }
+  .lane-at { font-size: 0.95rem; opacity: 0.75; }
+  .lane-at b { font-size: 1.15rem; opacity: 1; }
+  .lane-track { position: relative; height: 16px; border-radius: 999px; background: var(--card-hi); }
+  .lane-track > i { display: block; height: 100%; border-radius: 999px; background: var(--accent); transition: width 0.4s ease; }
+  .lane.focus .lane-track > i { background: var(--bad); }
+  .lane-runner { position: absolute; top: -7px; transform: translateX(-50%); font-size: 1.3rem; transition: left 0.4s ease; }
 </style>
 </head>
 <body>
 <div id="app"><div class="card" style="margin-top:32px">Loading…</div></div>
+<script src="chapters.js"></script>
 <script>
 (function () {
   'use strict';
@@ -179,8 +196,133 @@
       lobby: viewLobby,
       running: viewRunning,
       over: viewOver
+    },
+
+    fieldday: {
+      label: 'Field Day',
+      icon: '\uD83C\uDFC1',
+      blurb: 'Five lanes, one per chapter. Every right answer moves the lane its question came from. Nobody races anybody, so there is no order of students to come last in.',
+      settings: function () {
+        return '<div class="btn-row">' +
+          '<div class="field" style="flex:1;margin:0"><label for="laps">Steps to win a lane</label>' +
+          '<input id="laps" type="number" value="20" min="5" max="80"></div>' +
+          '<div class="field" style="flex:1;margin:0"><label for="fdmins">Clock (min)</label>' +
+          '<input id="fdmins" type="number" value="10" min="1" max="60"></div>' +
+          '</div>';
+      },
+      config: function () {
+        return {
+          laps: Number(document.getElementById('laps').value) || 20,
+          minutes: Number(document.getElementById('fdmins').value) || 10
+        };
+      },
+      clockMs: function (r) { return (r.gs || {}).endsAtMs || null; },
+      autoEnd: function (r) {
+        var g = r.gs || {};
+        return !!(g.endsAtMs && g.endsAtMs < Date.now() - 1500);
+      },
+      controls: function () {
+        return [
+          { id: 'focus', action: 'focus' },
+          { id: 'extend', action: 'extend', extra: { seconds: 60 } }
+        ];
+      },
+      lobby: fdLobby,
+      running: fdRunning,
+      over: fdOver
     }
   };
+
+  // --------------------------------------------------------------- Field Day
+
+  var CHAPTERS = window.RT_CHAPTERS || [];
+
+  function laneName(id) {
+    var c = CHAPTERS.filter(function (x) { return x.id === id; })[0];
+    return c ? 'Ch ' + c.number + ' \u00b7 ' + c.title : id;
+  }
+
+  function fdLobby() {
+    var r = S.room, g = r.gs || {};
+    return '<div class="topbar"><strong>Field Day</strong><div class="spacer"></div>' +
+      '<span class="pill">' + r.players.length + ' joined</span></div>' +
+      '<div class="card pad-lg center"><p class="dim" style="margin:0 0 4px">Room code</p>' +
+      '<div class="roomcode">' + esc(r.code) + '</div>' +
+      '<p class="dim">First lane to <b>' + g.laps + '</b> steps wins. ' +
+      'Clock <b>' + (g.startMinutes || 10) + ':00</b>.</p></div>' +
+      '<div class="card"><h3>In the room</h3>' +
+      (r.players.length
+        ? '<div>' + r.players.map(function (p) { return '<span class="player">' + esc(p.name) + '</span>'; }).join('') + '</div>'
+        : '<p class="dim">Nobody yet. Read the room code out.</p>') +
+      '</div>' +
+      '<button class="btn" id="start"' + (r.players.length ? '' : ' disabled') + '>Start the clock</button>';
+  }
+
+  // The five lanes and NOTHING else. No name with a number beside it, ever -
+  // that absence is the whole straggler design, not an oversight.
+  function fdLanes(g, over) {
+    var laps = g.laps || 20;
+    var lanes = g.lanes || {};
+    // a finished round has no live focus to advertise
+    var focus = over ? null : g.focus;
+    var ids = CHAPTERS.length ? CHAPTERS.map(function (c) { return c.id; }) : Object.keys(lanes);
+    var lead = ids.reduce(function (m, id) { return (lanes[id] || 0) > (lanes[m] || 0) ? id : m; }, ids[0]);
+
+    return ids.map(function (id) {
+      var at = lanes[id] || 0;
+      var pct = Math.min(100, 100 * at / laps);
+      var isFocus = focus && focus.chapter === id;
+      return '<div class="lane' + (id === lead && at > 0 ? ' lead' : '') + (isFocus ? ' focus' : '') + '">' +
+        '<div class="lane-top"><span class="lane-name">' + esc(laneName(id)) + '</span>' +
+        (isFocus ? '<span class="lane-focus">DOUBLE &middot; ' + focus.left + ' left</span>' : '') +
+        '<span class="lane-at"><b>' + at + '</b>/' + laps + '</span></div>' +
+        '<div class="lane-track"><i style="width:' + pct.toFixed(1) + '%"></i>' +
+        '<span class="lane-runner" style="left:' + pct.toFixed(1) + '%">\uD83C\uDFC3</span></div>' +
+        '</div>';
+    }).join('');
+  }
+
+  function fdRunning() {
+    var r = S.room, g = r.gs || {};
+    var h = '';
+    if (g.focus) {
+      h += '<div class="allhands">\uD83C\uDFAF FOCUS &mdash; ' + esc(laneName(g.focus.chapter)) +
+        '<div style="font-size:0.9rem;font-weight:600;margin-top:4px">what the room is getting wrong most ' +
+        '&middot; worth double steps for the next ' + g.focus.left + '</div></div>';
+    }
+    h += '<div class="clock" id="clock">--:--</div>';
+    h += '<div class="lanes">' + fdLanes(g) + '</div>';
+    h += '<div class="ctl">' +
+      '<button class="btn ghost sm" id="focus">\uD83C\uDFAF Focus the weakest</button>' +
+      '<button class="btn ghost sm" id="extend">+60 seconds</button>' +
+      '<button class="btn ghost sm" id="end">End round</button>' +
+      '</div>';
+    return h;
+  }
+
+  function fdOver() {
+    var r = S.room, g = r.gs || {};
+    var lanes = g.lanes || {};
+    var ids = CHAPTERS.length ? CHAPTERS.map(function (c) { return c.id; }) : Object.keys(lanes);
+    var won = g.winner;
+    var lead = won || ids.reduce(function (m, id) { return (lanes[id] || 0) > (lanes[m] || 0) ? id : m; }, ids[0]);
+    var misses = g.misses || {};
+    var worst = Object.keys(misses).sort(function (a, b) { return misses[b] - misses[a]; }).slice(0, 3);
+
+    return '<div class="center" style="margin-top:18px">' +
+      '<div style="font-size:3.2rem">\uD83C\uDFC1</div>' +
+      '<h1>' + esc(laneName(lead)) + '</h1>' +
+      '<p class="dim">' + (won ? 'crossed the line first' : 'finished furthest ahead') + '</p></div>' +
+      '<div class="lanes">' + fdLanes(g, true) + '</div>' +
+      (worst.length
+        ? '<div class="card"><h3 style="margin-bottom:4px">Teach these next</h3>' +
+          '<p class="faint" style="margin:0 0 10px">Where the room got it wrong most. No names, ever.</p>' +
+          '<div>' + worst.map(function (id) {
+            return '<span class="poolchip">' + esc(laneName(id)) + ' &middot; ' + misses[id] + '</span>';
+          }).join('') + '</div></div>'
+        : '') +
+      '<button class="btn" id="again">New round</button>';
+  }
 
   function gameOf(r) { return (r && r.game) || 'buytime'; }
   function defOf(r) { return r ? (GAMES[gameOf(r)] || null) : null; }

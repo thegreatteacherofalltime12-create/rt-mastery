@@ -1347,6 +1347,67 @@
       sig: function (g) {
         var a = g.allHands;
         return a && !a.solved && new Date(a.endsAt).getTime() > Date.now() ? '|ah' : '';
+      },
+      // what the student is told after an answer. Every word of this is Buy
+      // Time's, so it lives with Buy Time.
+      say: function (j, correct) {
+        if (!correct) return 'Into the pool - costs the room nothing. Someone else can take it.';
+        if (j.creditedTo) return '+' + j.seconds + 's for the room - credited to ' + j.creditedTo;
+        if (j.allHands) return '+' + j.seconds + 's for the room - all hands cleared!';
+        if (j.fromPool) return '+' + j.seconds + 's - you cleared one from the pool';
+        if (j.atCap) return 'Correct - you are at your cap, let someone else buy the time';
+        return '+' + j.seconds + 's for the room';
+      }
+    },
+
+    fieldday: {
+      // A phone shows the lane it just moved and how far the room has to go.
+      // It deliberately does NOT show a per-student tally, because there is no
+      // such thing in this format and inventing one on the small screen would
+      // quietly reintroduce the ranking the projector was designed to avoid.
+      banner: function (r, g) {
+        var lanes = g.lanes || {};
+        var ids = Object.keys(lanes);
+        var laps = g.laps || 20;
+        var lead = ids.length
+          ? ids.reduce(function (m, id) { return lanes[id] > lanes[m] ? id : m; }, ids[0])
+          : null;
+        var h = '<div class="card" style="padding:12px 14px;margin-bottom:10px">' +
+          '<div style="display:flex;justify-content:space-between;font-size:0.85rem;margin-bottom:6px">' +
+          '<span class="dim">Front runner</span><span><b>' +
+          (lead ? chapterLabel(lead) : 'nobody yet') + '</b>' +
+          (lead ? ' &middot; ' + lanes[lead] + '/' + laps : '') + '</span></div>' +
+          '<div class="bar"><i style="width:' +
+          (lead ? Math.min(100, 100 * lanes[lead] / laps).toFixed(1) : '0') +
+          '%;background:var(--good)"></i></div></div>';
+        if (g.focus) {
+          h += '<div class="banner warn" style="text-align:center"><b>&#127919; FOCUS</b> &mdash; ' +
+            esc(chapterLabel(g.focus.chapter)) + ' is worth double right now</div>';
+        }
+        return h;
+      },
+      clockMs: function (g) { return g.endsAtMs || null; },
+      outcome: function (r, g) {
+        var lanes = g.lanes || {};
+        var ids = Object.keys(lanes);
+        var lead = g.winner || (ids.length
+          ? ids.reduce(function (m, id) { return lanes[id] > lanes[m] ? id : m; }, ids[0])
+          : null);
+        return {
+          won: !!g.winner,
+          title: lead ? chapterLabel(lead) + ' won' : 'Time',
+          detail: lead
+            ? (g.winner ? 'crossed the line first' : 'finished furthest ahead')
+            : ''
+        };
+      },
+      // the focus window closes when it is used up, not on a clock, so the
+      // document changes and no signature hook is needed
+      say: function (j, correct) {
+        if (!correct) return 'No cost to anyone. It only tells your instructor what to go over.';
+        if (j.won) return chapterLabel(j.won) + ' crossed the line!';
+        if (j.focused) return 'Double step - ' + chapterLabel(j.lane) + ' was the focus';
+        return chapterLabel(j.lane) + ' moves up one';
       }
     }
   };
@@ -1357,6 +1418,11 @@
 
   var LIVE = { code: '', room: null, poll: null, view: null, feedback: '', busy: false,
                misses: {}, lastJson: '', stale: '' };
+
+  function chapterLabel(id) {
+    var c = chapterById(id);
+    return c ? 'Ch ' + c.number : id;
+  }
 
   function liveGameOf(r) { return (r && r.game) || 'buytime'; }
   function liveDef(r) { return LIVE_GAMES[liveGameOf(r)] || null; }
@@ -1439,12 +1505,8 @@
         LIVE.busy = false;
         if (res.ok) {
           LIVE.room = res.j.room;
-          LIVE.feedback = res.j.creditedTo
-            ? '+' + res.j.seconds + 's for the room — credited to ' + res.j.creditedTo
-            : res.j.allHands ? '+' + res.j.seconds + 's for the room — all hands cleared!'
-            : res.j.fromPool ? '+' + res.j.seconds + 's — you cleared one from the pool'
-            : res.j.atCap ? 'Correct — you are at your cap, let someone else buy the time'
-            : '+' + res.j.seconds + 's for the room';
+          var sdef = liveDef(LIVE.room);
+          LIVE.feedback = sdef && sdef.say ? sdef.say(res.j, true) : 'Correct';
         } else {
           LIVE.feedback = 'Correct — saved locally, could not reach the room';
         }
@@ -1455,7 +1517,8 @@
       liveEvent('miss', { qid: v.q.id, topic: v.q.topic, chapter: v.q.chapter }).then(function (res) {
         LIVE.busy = false;
         if (res.ok) LIVE.room = res.j.room;
-        LIVE.feedback = 'Into the pool — costs the room nothing. Someone else can take it.';
+        var mdef = liveDef(LIVE.room);
+        LIVE.feedback = res.ok && mdef && mdef.say ? mdef.say(res.j, false) : 'Saved locally.';
         render();
       });
     }

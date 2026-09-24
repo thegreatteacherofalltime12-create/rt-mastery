@@ -729,6 +729,125 @@ const GAMES = {
         };
       }
     }
+  },
+
+  // ------------------------------------------------------------- Field Day
+  //
+  // Five lanes, one per chapter. Every correct answer in the room moves the
+  // lane its question came from.
+  //
+  // THE RACERS ARE CHAPTERS, NOT STUDENTS. That is the entire straggler
+  // design: there is no order of students to come last in, because the object
+  // does not exist. Nothing per-student is projected at any point, and a step
+  // is worth one whether it came from a Recognise question or a Recall one -
+  // the level difference is paid privately in XP, never on the wall.
+  fieldday: {
+    label: 'Field Day',
+    blurb: 'Five lanes, one per chapter. Every right answer moves the lane its question came from. Nobody races anybody.',
+
+    config(body) {
+      return {
+        laps: Math.min(80, Math.max(5, Number(body.laps) || 20)),
+        minutes: Math.min(60, Math.max(1, Number(body.minutes) || 10))
+      };
+    },
+
+    newState() {
+      return { lanes: {}, misses: {}, endsAtMs: 0, focus: null, winner: null };
+    },
+
+    project(room) {
+      const cfg = room.cfg || {};
+      const gs = room.gs || {};
+      return {
+        laps: cfg.laps || 20,
+        startMinutes: cfg.minutes || 10,
+        lanes: gs.lanes || {},
+        misses: gs.misses || {},
+        focus: gs.focus || null,
+        endsAtMs: gs.endsAtMs || null,
+        winner: gs.winner || null
+      };
+    },
+
+    onStart(room, set) {
+      room.gs.endsAtMs = set['gs.endsAtMs'] =
+        Date.now() + (room.cfg.minutes || 10) * 60000;
+    },
+
+    actions: {
+      // The reteach cue, as spectacle rather than as a grade. It names the
+      // chapter the room is getting wrong most and makes it worth DOUBLE.
+      //
+      // The original design called this a setback card and moved that lane
+      // backwards. It does not, deliberately: a lane losing ground because the
+      // room missed questions would mean a student's wrong answer cost everyone
+      // else, and nothing in this project is allowed to do that. Pointing the
+      // room at its weakest material is the useful half; the penalty was not.
+      focus(room, set) {
+        const misses = room.gs.misses || {};
+        const worst = Object.keys(misses).sort((a, b) => misses[b] - misses[a])[0];
+        if (!worst) return 'nobody has missed anything yet';
+        room.gs.focus = set['gs.focus'] = { chapter: worst, left: 5 };
+      },
+
+      extend(room, set, inc, body) {
+        const add = Math.min(600, Math.max(10, Number(body.seconds) || 60));
+        if ((room.gs.endsAtMs || 0) > Date.now()) {
+          inc['gs.endsAtMs'] = add * 1000;
+          room.gs.endsAtMs = room.gs.endsAtMs + add * 1000;
+        } else {
+          room.gs.endsAtMs = set['gs.endsAtMs'] = Date.now() + add * 1000;
+        }
+      }
+    },
+
+    events: {
+      // A miss moves nothing. It is only ever a tally feeding the reteach cue,
+      // and it is never attributed to anybody.
+      async miss(room, ctx) {
+        const chapter = String(ctx.body.chapter || '').slice(0, 12);
+        if (!/^[a-z0-9]{1,12}$/.test(chapter)) return { steps: 0 };
+        room.gs.misses = room.gs.misses || {};
+        room.gs.misses[chapter] = (room.gs.misses[chapter] || 0) + 1;
+        await ctx.commit({ inc: { [fieldPath(['gs', 'misses', chapter])]: 1 } });
+        return { steps: 0 };
+      },
+
+      async clear(room, ctx) {
+        const chapter = String(ctx.body.chapter || '').slice(0, 12);
+        // Lane ids become field paths, so they are validated rather than trusted.
+        if (!/^[a-z0-9]{1,12}$/.test(chapter)) return { steps: 0 };
+
+        room.gs.lanes = room.gs.lanes || {};
+        const focus = room.gs.focus;
+        const focused = !!(focus && focus.chapter === chapter && focus.left > 0);
+        const steps = focused ? 2 : 1;
+
+        const set = {};
+        const inc = {};
+        inc[fieldPath(['gs', 'lanes', chapter])] = steps;
+
+        const now = (room.gs.lanes[chapter] || 0) + steps;
+        room.gs.lanes[chapter] = now;
+
+        if (focused) {
+          focus.left -= 1;
+          room.gs.focus = focus.left > 0 ? focus : null;
+          set['gs.focus'] = room.gs.focus;
+        }
+
+        // A lane reaching the line ends the round, and the winner is a CHAPTER.
+        const laps = (room.cfg && room.cfg.laps) || 20;
+        if (now >= laps && !room.gs.winner) {
+          room.gs.winner = set['gs.winner'] = chapter;
+          room.state = set.state = 'ended';
+        }
+
+        await ctx.commit({ set, inc });
+        return { steps: steps, lane: chapter, focused: focused, won: room.gs.winner || null };
+      }
+    }
   }
 };
 

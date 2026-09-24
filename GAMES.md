@@ -6,8 +6,8 @@ class of exactly ten, and the honest flaw in each — so that a format is not
 rebuilt from scratch, and so that the shared plumbing is designed against real
 candidates rather than imagined ones.
 
-**Buy Time**, **The Supply Closet** and **Three Certainties** are built. Everything
-else is a design, not a promise.
+**Buy Time**, **The Supply Closet**, **Three Certainties** and **Field Day** are
+built. Everything else is a design, not a promise.
 
 ---
 
@@ -95,7 +95,7 @@ layer, the level ladder, Leitner scheduling, and six question types.
 |---|---|---|---|
 | The Standing Order | small | 1 doc, 60s cache | only the holder is ever named |
 | ~~The Supply Closet~~ | **built** | zero extra ops | purchases are private |
-| Field Day | medium | zero extra ops | the racers are chapters, not students |
+| ~~Field Day~~ | **built** | zero extra ops | the racers are chapters, not students |
 | ~~Three Certainties~~ | **built** | 1 write/round | calibration is personal, not ranked |
 | Beat the Forecast | medium | reuses the room doc | private per-student handicap |
 | The Walk-Through | large | same as Buy Time | cooperative, no ranking |
@@ -139,7 +139,7 @@ competence rather than more consumables. Teacher grants are one atomic increment
 the student document, claimed by difference so a grant is never applied twice and
 never lost to an offline phone.
 
-### Field Day — lane racing, safest design here
+### Field Day — lane racing, safest design here  *(built)*
 
 Five lanes on the projector, one per chapter. Every correct answer in the room
 moves the lane its question belongs to, and `q.chapter` is already stamped on
@@ -147,10 +147,16 @@ every question. **The racers are chapters, not students — there is no order of
 students to be last in, because the object simply does not exist.**
 
 Steps are flat, one per correct answer regardless of level, so a Level 1 student
-moves a lane exactly as far as a Level 3 student. Setback cards name the chapter
-with the most misses, handing the instructor a reteach cue that arrives as
-spectacle rather than as a grade. Lane positions are five integers on the room
-document already being written, so it costs nothing extra.
+moves a lane exactly as far as a Level 3 student. Lane positions are five
+integers on the room document already being written, so it costs nothing extra.
+Nothing per-student is projected at any point — that absence is the design.
+
+**As built, the setback card is a Focus card and it does not set anything back.**
+A lane losing ground because the room missed questions would mean one student’s
+wrong answer cost everybody else, and rule 2 does not allow that. Focus keeps
+the useful half: it names the chapter the room is getting wrong most and makes
+it worth double for the next five clears. Same spectacle, same reteach cue, no
+penalty. A miss still moves nothing at all; it only feeds the tally.
 
 ### Beat the Forecast — the private handicap
 
