@@ -125,6 +125,15 @@ students ever see it.
 
 ---
 
+## Game formats
+
+See **[GAMES.md](GAMES.md)**. The engine carries several live and solo formats;
+**Buy Time** is the one that is built. That document records the designs, the
+honest flaw in each, and the six rules any new format has to obey — a class of
+exactly ten is a hard design constraint, not a detail.
+
+---
+
 ## Project layout
 
 ```
