@@ -6,8 +6,8 @@ class of exactly ten, and the honest flaw in each — so that a format is not
 rebuilt from scratch, and so that the shared plumbing is designed against real
 candidates rather than imagined ones.
 
-**Buy Time** and **The Supply Closet** are built. Everything else is a design, not a
-promise.
+**Buy Time**, **The Supply Closet** and **Three Certainties** are built. Everything
+else is a design, not a promise.
 
 ---
 
@@ -96,7 +96,7 @@ layer, the level ladder, Leitner scheduling, and six question types.
 | The Standing Order | small | 1 doc, 60s cache | only the holder is ever named |
 | ~~The Supply Closet~~ | **built** | zero extra ops | purchases are private |
 | Field Day | medium | zero extra ops | the racers are chapters, not students |
-| Three Certainties | medium | ~10 writes/round | calibration is personal, not ranked |
+| ~~Three Certainties~~ | **built** | 1 write/round | calibration is personal, not ranked |
 | Beat the Forecast | medium | reuses the room doc | private per-student handicap |
 | The Walk-Through | large | same as Buy Time | cooperative, no ranking |
 
@@ -171,7 +171,7 @@ system, knowing my whole history, predicted I could do" — which does not.
 Students decode the margin back to a forecast within two holes. **Project only
 team totals; keep every individual margin on the student's own phone.**
 
-### Three Certainties — confidence betting
+### Three Certainties — confidence betting  *(built)*
 
 A fixed budget of **3 Certain · 4 Fairly Sure · 3 Guess** across ten questions,
 spent before the timer ends.
@@ -191,11 +191,13 @@ This attacks the exact failure behind the flashcards. Most of its value works
 **without** a live classroom, so it is shippable solo-first; only the projector
 calibration slide needs everyone present.
 
-**Two implementation traps found in review:** the `practice` flag in
-`finishRun()` gates box demotion, so a naive build silently disables the
-punishment mechanic; and a single round of three Certains can only report 0 /
-33 / 67 / 100%, so the calibration verdict must accumulate across rounds or it
-is reporting three coin flips as a measurement.
+**Both traps the review found were real, and both are handled.** The flag that
+gates Leitner demotion reads as a mode name, so a naive build would have
+silently disabled the punishment mechanic — it now asks whether a run feeds the
+boxes, which Three Certainties does. And a single round of three Certains can
+only report 0 / 33 / 67 / 100%, so the tally accumulates across every round ever
+played and no verdict is offered until there are nine; before that the screen
+says plainly that one round is too few to say anything true.
 
 ### The Standing Order — a rotating bounty
 

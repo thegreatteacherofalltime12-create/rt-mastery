@@ -160,6 +160,61 @@
     return true;
   }
 
+  // -------------------------------------------------------- Three Certainties
+  //
+  // The failure this attacks is the one that made the flashcards useless:
+  // recognising an answer feels exactly like knowing it. So this does not ask
+  // whether you are right. It asks whether you KNEW you were right, and it
+  // charges most for being confidently wrong.
+  //
+  // The budget is what makes it a decision. Certainty is scarce - three in ten -
+  // so spending one is a real claim rather than a mood.
+
+  var CERT_SIZE = 10;
+  var CERT_BUDGET = { certain: 3, sure: 4, guess: 3 };
+
+  var CERT = {
+    certain: { name: 'Certain', short: 'CERTAIN', win: 50, lose: -80,
+               blurb: 'You would bet on this.' },
+    sure:    { name: 'Fairly sure', short: 'FAIRLY SURE', win: 20, lose: -25,
+               blurb: 'You think so.' },
+    guess:   { name: 'Guess', short: 'GUESS', win: 5, lose: -5,
+               blurb: 'No idea, picking anyway.' }
+  };
+  var CERT_ORDER = ['certain', 'sure', 'guess'];
+
+  // Calibration cannot be read from one round. Three Certains can only ever
+  // score 0, 33, 67 or 100 per cent, so a verdict from a single session is
+  // reporting three coin flips as a measurement. The tally accumulates across
+  // every round the student has ever played, and no verdict is offered until
+  // there is enough of it to mean something.
+  var CERT_MIN_FOR_VERDICT = 9;
+
+  function certTally() {
+    S.stats.calib = S.stats.calib || {};
+    CERT_ORDER.forEach(function (k) {
+      S.stats.calib[k] = S.stats.calib[k] || { n: 0, right: 0 };
+    });
+    return S.stats.calib;
+  }
+
+  function certVerdict() {
+    var t = certTally().certain;
+    if (t.n < CERT_MIN_FOR_VERDICT) {
+      return { enough: false, n: t.n, need: CERT_MIN_FOR_VERDICT - t.n };
+    }
+    var pct = Math.round(100 * t.right / t.n);
+    return {
+      enough: true, n: t.n, right: t.right, pct: pct,
+      // 'Certain' is a claim about nine times in ten. Anything under that is
+      // overconfidence, which is the thing worth naming.
+      over: pct < 90,
+      line: pct >= 90
+        ? 'When you say Certain, you are right ' + pct + '% of the time. That is what Certain should mean.'
+        : 'When you say Certain, you are right ' + pct + '% of the time. Certain should mean nine times in ten.'
+    };
+  }
+
   var API = '/api';
 
   // ---------------------------------------------------------------- state
@@ -721,6 +776,19 @@
       '<button class="btn sm" data-boss ' + (bu ? '' : 'disabled') + '>' + (bu ? 'Enter the boss fight' : 'Locked') + '</button>' +
       '</div>';
 
+    var verdict = certVerdict();
+    h += '<div class="card" style="margin-top:14px">' +
+      '<h3 style="margin-bottom:4px">&#127919; Three Certainties</h3>' +
+      '<p class="faint" style="margin:0 0 10px">Ten questions. Three Certains, four Fairly Sures, ' +
+      'three Guesses. Being sure and wrong costs more than anything else &mdash; ' +
+      'which is the point, because feeling sure is exactly what flashcards teach.</p>' +
+      (verdict.enough
+        ? '<p class="' + (verdict.over ? 'warnline' : 'goodline') + '" style="margin:0 0 10px">' +
+          esc(verdict.line) + '</p>'
+        : '') +
+      '<button class="btn ghost" data-certainties>Place ten bets</button>' +
+      '</div>';
+
     if (S.profile.classCode) {
       h += '<button class="btn" data-go="live" style="margin-top:14px">&#9201;&#65039; Join live round</button>';
     }
@@ -785,6 +853,10 @@
       '<div class="stat"><div class="n">' + Math.round(o.pct * 100) + '%</div><div class="l">Mastered</div></div>' +
       '<div class="stat"><div class="n">' + S.stats.sessions + '</div><div class="l">Rounds</div></div>' +
       '<div class="stat"><div class="n">' + S.stats.bestStreak + '</div><div class="l">Best streak</div></div>' +
+      (typeof S.stats.bestCert === 'number'
+        ? '<div class="stat"><div class="n">' + (S.stats.bestCert > 0 ? '+' : '') + S.stats.bestCert +
+          '</div><div class="l">Best bet round</div></div>'
+        : '') +
       '</div>' +
       '<div class="statgrid">' +
       '<div class="stat"><div class="n">' + S.stats.xp + '</div><div class="l">XP</div></div>' +
@@ -911,6 +983,43 @@
     }
   }
 
+  // The bet. Shown only once an answer is selected, because betting before
+  // choosing would measure bravado rather than knowledge.
+  function certStrip(v) {
+    var r = S.run;
+    if (v.answered) {
+      if (!v.conf) return '';
+      var band = CERT[v.conf];
+      var good = v.points > 0;
+      return '<div class="betline ' + (good ? 'good' : 'bad') + '">' +
+        '<b>' + band.short + '</b> &middot; ' +
+        (v.points > 0 ? '+' : '') + v.points +
+        (!v.correct && v.conf === 'certain'
+          ? ' &mdash; back to the bottom of the pile, tagged <i>you were sure about this</i>'
+          : '') +
+        '</div>';
+    }
+
+    var chosen = v.picked !== null && v.picked !== undefined;
+    if (v.type === 'multi') chosen = Object.keys(v.sel || {}).some(function (k) { return v.sel[k]; });
+
+    if (!chosen) {
+      return '<p class="faint center" style="margin:8px 0 0">Choose an answer, then say how sure you are.</p>';
+    }
+
+    return '<div class="betbar">' +
+      CERT_ORDER.map(function (k) {
+        var left = r.budget[k], band = CERT[k];
+        return '<button class="bet bet-' + k + (left ? '' : ' off') + '" data-conf="' + k + '"' +
+          (left ? '' : ' disabled') + '>' +
+          '<span class="bet-name">' + band.short + '</span>' +
+          '<span class="bet-odds">+' + band.win + ' / ' + band.lose + '</span>' +
+          '<span class="bet-left">' + left + ' left</span>' +
+          '</button>';
+      }).join('') +
+      '</div>';
+  }
+
   function closetShelf(v, live) {
     var ids = offersFor(v, live);
     if (!ids.length) return '';
@@ -955,6 +1064,9 @@
     h += '<div class="qhead">' +
       '<span class="faint">' + (r.idx + 1) + '/' + r.views.length + '</span>' +
       '<span class="bar"><i style="width:' + ((r.idx) / r.views.length * 100).toFixed(1) + '%"></i></span>' +
+      (r.mode === 'certainty'
+        ? '<span class="faint">' + (r.score > 0 ? '+' : '') + r.score + '</span>'
+        : '') +
       '</div>';
 
     h += '<div class="card pad-lg">';
@@ -963,6 +1075,8 @@
 
     h += renderBody(v);
     h += '</div>';
+
+    if (r.mode === 'certainty') h += certStrip(v);
 
     h += closetShelf(v, false);
 
@@ -1078,6 +1192,60 @@
 
   // ---- results
 
+  // The point of the round is not the score, it is the sentence about Certain.
+  // So that leads, and the percentage is demoted to the ordinary card below.
+  function certResults(r, right) {
+    var used = {};
+    CERT_ORDER.forEach(function (k) { used[k] = { n: 0, right: 0 }; });
+    r.views.forEach(function (v) {
+      if (!v.conf) return;
+      used[v.conf].n++;
+      if (v.correct) used[v.conf].right++;
+    });
+
+    var h = '<div class="card pad-lg center">' +
+      '<p class="dim" style="margin:0">This round</p>' +
+      '<div style="font-size:2.6rem;font-weight:800;line-height:1.15">' +
+      (r.score > 0 ? '+' : '') + r.score + '</div>' +
+      '<p class="dim">' + right + ' of ' + r.views.length + ' right</p></div>';
+
+    h += '<div class="card"><h3 style="margin-bottom:8px">What you bet</h3>';
+    CERT_ORDER.forEach(function (k) {
+      var u = used[k], band = CERT[k];
+      if (!u.n) return;
+      h += '<div class="betrow"><span class="bet-name">' + band.short + '</span>' +
+        '<span class="dim">' + u.right + ' of ' + u.n + ' right</span></div>';
+    });
+
+    var verdict = certVerdict();
+    if (verdict.enough) {
+      h += '<p class="' + (verdict.over ? 'warnline' : 'goodline') + '" style="margin:12px 0 0">' +
+        esc(verdict.line) + '</p>' +
+        '<p class="faint" style="margin:6px 0 0">Across every round you have played: ' +
+        verdict.right + ' of ' + verdict.n + '.</p>';
+    } else {
+      // Three Certains a round can only ever read 0, 33, 67 or 100 per cent.
+      // Saying anything definite from that would be dressing up a coin flip.
+      h += '<p class="faint" style="margin:12px 0 0">You have spent Certain ' + verdict.n +
+        ' time' + (verdict.n === 1 ? '' : 's') + ' so far. After ' + verdict.need +
+        ' more this will tell you how much your Certain is actually worth &mdash; ' +
+        'one round of three is too few to say anything true.</p>';
+    }
+    h += '</div>';
+
+    var sure = r.views.filter(function (v) { return v.conf === 'certain' && !v.correct; });
+    if (sure.length) {
+      h += '<div class="card"><h3 style="margin-bottom:4px">You were sure about these</h3>' +
+        '<p class="faint" style="margin:0 0 10px">Back to the bottom of the pile. These are the ' +
+        'ones worth looking at tonight.</p>' +
+        sure.map(function (v) { return v.q.topic; })
+          .filter(function (t, i, a) { return a.indexOf(t) === i; })   // two misses in one topic is one thing to revise
+          .map(function (t) { return '<div class="betrow"><span>' + esc(t) + '</span></div>'; })
+          .join('') + '</div>';
+    }
+    return h;
+  }
+
   function viewResults() {
     var r = S.run;
     var right = r.views.filter(function (v) { return v.correct; }).length;
@@ -1085,6 +1253,8 @@
     var passed = pct >= (r.passMark || 0);
 
     var h = topbar(r.title + ' — done', null);
+
+    if (r.mode === 'certainty') h += certResults(r, right);
 
     h += '<div class="card pad-lg center">' +
       '<div style="font-size:2.8rem;line-height:1">' + (pct >= 90 ? '&#127942;' : pct >= 70 ? '&#128077;' : '&#128170;') + '</div>' +
@@ -1461,6 +1631,36 @@
     render();
   }
 
+  function startCertainties() {
+    var pool = allQuestions().filter(function (q) { return q.type === 'mc' || q.type === 'scenario' || q.type === 'multi'; });
+    if (pool.length < CERT_SIZE) return;
+    // Weakest material first, at the level this student is actually working at,
+    // so the bet is placed on something that matters.
+    var picked = shuffle(pool).sort(function (a, b) {
+      var ra = S.progress[recKey(a.id, levelOf(a.chapter))];
+      var rb = S.progress[recKey(b.id, levelOf(b.chapter))];
+      return ((ra && ra.box) || 0) - ((rb && rb.box) || 0);
+    }).slice(0, CERT_SIZE);
+
+    S.run = {
+      mode: 'certainty',
+      title: 'Three Certainties',
+      views: picked.map(function (q) { return prep(serve(q, levelOf(q.chapter))); }),
+      idx: 0, streak: 0, xpStart: S.stats.xp,
+      deadline: null, hideFeedback: false, passMark: 0,
+      budget: Object.assign({}, CERT_BUDGET),
+      score: 0
+    };
+    S.screen = 'play';
+    render();
+  }
+
+  function certLeft(kind) { return (S.run && S.run.budget && S.run.budget[kind]) || 0; }
+  function certSpent() {
+    if (!S.run || !S.run.budget) return 0;
+    return CERT_ORDER.reduce(function (n, k) { return n + (CERT_BUDGET[k] - S.run.budget[k]); }, 0);
+  }
+
   function startTimed(opts) {
     var pool = gradedPool(opts.chapters, opts.topics);
     if (!pool.length) return;
@@ -1513,7 +1713,11 @@
     var r = S.run;
     // any unanswered questions (ran out of time) count as missed
     r.views.forEach(function (v) {
-      if (!v.answered) { v.answered = true; v.correct = false; applyResult(v.q.id, false, r.mode === "practice", v.q._level || 1, v._protected); }
+      if (!v.answered) {
+        v.answered = true; v.correct = false;
+        applyResult(v.q.id, false, r.mode === 'practice' || r.mode === 'certainty',
+                    v.q._level || 1, v._protected);
+      }
     });
 
     // Inservice pays on the whole session rather than per question, so it is
@@ -1534,6 +1738,12 @@
     if (r.mode === 'practice') {
       S.stats.sessions++;
       r.promotedTo = checkPromotion(r.chapterId);   // may be null
+    }
+    if (r.mode === 'certainty') {
+      S.stats.certRuns = (S.stats.certRuns || []).concat([{
+        score: r.score, at: new Date().toISOString()
+      }]).slice(-30);
+      S.stats.bestCert = Math.max(S.stats.bestCert || -9999, r.score);
     }
     if (r.mode === 'exam' || r.mode === 'boss') {
       S.stats.examRuns = (S.stats.examRuns || []).concat([{
@@ -1562,7 +1772,32 @@
     if (v.answered) return;
     v.correct = grade(v);
     v.answered = true;
-    applyResult(v.q.id, v.correct, r.mode === "practice", v.q._level || 1, v._protected);
+
+    // Spaced repetition applies to practice AND to Three Certainties. The flag
+    // is about whether a run feeds the Leitner boxes, not about the word
+    // 'practice' - reading it as a mode name would have silently disabled the
+    // whole punishment mechanic here, which is the mechanic.
+    var feedsBoxes = r.mode === 'practice' || r.mode === 'certainty';
+    applyResult(v.q.id, v.correct, feedsBoxes, v.q._level || 1, v._protected);
+
+    if (r.mode === 'certainty' && v.conf) {
+      var band = CERT[v.conf];
+      v.points = v.correct ? band.win : band.lose;
+      r.score += v.points;
+
+      var t = certTally();
+      t[v.conf].n++;
+      if (v.correct) t[v.conf].right++;
+
+      // Being sure and wrong is the most expensive thing on the board, and the
+      // cost is not the points - it is that the question comes back from the
+      // bottom, tagged with what you claimed about it.
+      if (!v.correct && v.conf === 'certain') {
+        var rr = rec(v.q.id, v.q._level || 1);
+        rr.box = 0;
+        rr.wasSure = true;
+      }
+    }
 
     if (v.correct) {
       r.streak++;
@@ -1675,7 +1910,22 @@
         var v = curView();
         if (!v || v.answered) return;
         v.picked = parseInt(b.getAttribute('data-pick'), 10);
+        // In Three Certainties the answer is not the last word: the student
+        // still has to say how sure they are, and that is the measurement.
+        if (S.run && S.run.mode === 'certainty') { render(); return; }
         submitCur();
+      };
+    });
+
+    app.querySelectorAll('[data-conf]').forEach(function (b) {
+      b.onclick = function () {
+        var r = S.run, v = r && r.views[r.idx];
+        if (!v || v.answered) return;
+        var kind = b.getAttribute('data-conf');
+        if (!r.budget[kind]) return;
+        r.budget[kind]--;
+        v.conf = kind;
+        answerCurrent();
       };
     });
 
@@ -1806,6 +2056,9 @@
         save(); render();
       };
     });
+
+    var tc = app.querySelector('[data-certainties]');
+    if (tc) tc.onclick = startCertainties;
 
     var reset = app.querySelector('[data-reset]');
     if (reset) reset.onclick = function () {

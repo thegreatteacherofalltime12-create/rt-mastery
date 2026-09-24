@@ -415,3 +415,37 @@ select option { background: var(--bg-soft); color: var(--text); }
 .shopicon { font-size: 1.3rem; line-height: 1.4; width: 28px; text-align: center; flex: none; }
 .shopitem .faint { font-size: 0.82rem; margin: 2px 0 0; }
 .pill.sm { font-size: 0.72rem; padding: 2px 7px; }
+
+/* ------------------------------------------------------- three certainties */
+/* The bet appears only after an answer is chosen, so it measures knowledge
+   rather than bravado. */
+.betbar { display: flex; gap: 8px; margin: 10px 0 0; }
+.bet {
+  flex: 1; display: flex; flex-direction: column; align-items: center; gap: 2px;
+  padding: 10px 6px; font: inherit; cursor: pointer;
+  color: var(--text); background: var(--card-hi);
+  border: 1px solid var(--line); border-radius: 12px;
+}
+.bet:hover:not(.off) { border-color: var(--accent); }
+.bet.off { opacity: 0.35; cursor: not-allowed; }
+.bet-name { font-size: 0.72rem; font-weight: 800; letter-spacing: 0.06em; }
+.bet-odds { font-size: 0.72rem; color: var(--accent); font-weight: 700; }
+.bet-left { font-size: 0.68rem; opacity: 0.6; }
+.bet-certain .bet-name { color: var(--accent); }
+
+.betline {
+  margin: 10px 0 0; padding: 9px 12px; border-radius: 10px;
+  font-size: 0.85rem; font-weight: 600;
+  background: var(--card-hi); border: 1px solid var(--line);
+}
+.betline.good { border-color: var(--good); color: var(--good); }
+.betline.bad { border-color: var(--bad); color: var(--bad); }
+.betline i { font-style: italic; opacity: 0.85; }
+
+.betrow {
+  display: flex; justify-content: space-between; gap: 10px;
+  padding: 7px 0; border-top: 1px solid var(--line); font-size: 0.88rem;
+}
+.betrow:first-of-type { border-top: 0; }
+.warnline { color: var(--bad); font-weight: 650; font-size: 0.9rem; }
+.goodline { color: var(--good); font-weight: 650; font-size: 0.9rem; }
