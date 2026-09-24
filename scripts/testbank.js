@@ -145,10 +145,10 @@ function csvCell(v) {
 }
 
 const csv = [
-  ['Number', 'Question', 'A', 'B', 'C', 'D', 'Correct', 'Chapter', 'Topic', 'Feedback'].join(',')
+  ['Number', 'Question', 'A', 'B', 'C', 'D', 'Correct', 'Chapter', 'Topic', 'Origin', 'Feedback'].join(',')
 ].concat(items.map((q) => [
   q.n, q.prompt, q.choices[0], q.choices[1], q.choices[2], q.choices[3],
-  q.letter, q.chapter, q.topic, q.explain
+  q.letter, q.chapter, q.topic, q.id, q.explain
 ].map(csvCell).join(','))).join('\r\n');
 fs.writeFileSync(path.join(OUT, 'RT-test-bank.csv'), '﻿' + csv, 'utf8');
 
