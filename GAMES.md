@@ -6,8 +6,9 @@ class of exactly ten, and the honest flaw in each — so that a format is not
 rebuilt from scratch, and so that the shared plumbing is designed against real
 candidates rather than imagined ones.
 
-**Buy Time**, **The Supply Closet**, **Three Certainties**, **Field Day** and **The
-Standing Order** are built. Everything else is a design, not a promise.
+**Buy Time**, **The Supply Closet**, **Three Certainties**, **Field Day**, **The
+Standing Order** and **Beat the Forecast** are built. Everything else is a
+design, not a promise.
 
 ---
 
@@ -97,7 +98,7 @@ layer, the level ladder, Leitner scheduling, and six question types.
 | ~~The Supply Closet~~ | **built** | zero extra ops | purchases are private |
 | ~~Field Day~~ | **built** | zero extra ops | the racers are chapters, not students |
 | ~~Three Certainties~~ | **built** | 1 write/round | calibration is personal, not ranked |
-| Beat the Forecast | medium | reuses the room doc | private per-student handicap |
+| ~~Beat the Forecast~~ | **built** | reuses the room doc | private per-student handicap |
 | The Walk-Through | large | same as Buy Time | cooperative, no ranking |
 
 ### The Supply Closet — the token shop  *(built)*
@@ -158,7 +159,7 @@ the useful half: it names the chapter the room is getting wrong most and makes
 it worth double for the next five clears. Same spectacle, same reteach cue, no
 penalty. A miss still moves nothing at all; it only feeds the tally.
 
-### Beat the Forecast — the private handicap
+### Beat the Forecast — the private handicap  *(built)*
 
 Before the round the app privately tells each student what it expects from them,
 computed from their own Leitner history: *"the app expects 5 of 9 from you."*
@@ -171,11 +172,21 @@ nobody can compare cards. The tenth hole is "defend it": the box-3 question each
 student has gone longest without seeing, worth double, so the strong students
 finally have something to lose.
 
-**Fix required before the first run:** projecting individual margins replaces
-"I'm behind" (which has an excuse built in) with "I fell short of what the
-system, knowing my whole history, predicted I could do" — which does not.
-Students decode the margin back to a forecast within two holes. **Project only
-team totals; keep every individual margin on the student's own phone.**
+**That fix is how it was built, and it is enforced by the data model rather
+than by discipline.** The room document holds two integers for the whole class
+— what the class was expected to get and what it actually got — and nothing
+per student. There is literally nothing for the projector to leak. A test
+asserts the stored game state has exactly four keys and that no per-student
+number appears anywhere on the wire.
+
+The wall shows one dial for the room. A student sees their own margin on their
+own phone, and it is never sent anywhere else.
+
+Each question is charged the expectation stamped on it **when it was served**,
+never recomputed afterwards: the Leitner box moves the instant an answer lands,
+so computing it late charges a student an expectation based on knowledge they
+proved in that very answer — which inflates it on a hit, deflates it on a miss,
+and quietly shrinks every margin toward zero.
 
 ### Three Certainties — confidence betting  *(built)*
 

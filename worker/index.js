@@ -989,8 +989,109 @@ const GAMES = {
         return { steps: steps, lane: chapter, focused: focused, won: room.gs.winner || null };
       }
     }
+  },
+
+  // ------------------------------------------------- Beat the Forecast
+  //
+  // Before each question the app privately tells a student what it expects of
+  // them, computed from their own Leitner history. What is scored is the
+  // MARGIN: how far they beat their own number.
+  //
+  // ONLY THE ROOM TOTAL IS EVER PROJECTED. Putting individual margins on the
+  // wall would replace 'I am behind', which has an excuse built into it, with
+  // 'I fell short of what a system that knows my whole history predicted I
+  // could do', which has none - and students decode a margin back to a
+  // forecast within two holes. So the room document holds two integers for the
+  // whole class and nothing per student. There is nothing to leak.
+  //
+  // Both integers are in hundredths so they can be atomic increments: a
+  // forecast of 'about 6 times in 10' is 60, a correct answer is 100.
+  forecast: {
+    label: 'Beat the Forecast',
+    blurb: 'The app quietly tells each student what it expects of them. The wall shows only whether the room as a whole beat its own prediction.',
+
+    config(body) {
+      return {
+        holes: Math.min(30, Math.max(3, Number(body.holes) || 10)),
+        minutes: Math.min(60, Math.max(1, Number(body.minutes) || 12))
+      };
+    },
+
+    newState() {
+      return { actual: 0, expected: 0, holes: 0, endsAtMs: 0 };
+    },
+
+    project(room) {
+      const cfg = room.cfg || {};
+      const gs = room.gs || {};
+      const actual = gs.actual || 0;
+      const expected = gs.expected || 0;
+      return {
+        holes: cfg.holes || 10,
+        startMinutes: cfg.minutes || 12,
+        endsAtMs: gs.endsAtMs || null,
+        // one number for the whole room, to one decimal place
+        margin: Math.round((actual - expected) / 10) / 10,
+        answered: gs.holes || 0
+      };
+    },
+
+    onStart(room, set) {
+      room.gs.endsAtMs = set['gs.endsAtMs'] =
+        Date.now() + (room.cfg.minutes || 12) * 60000;
+    },
+
+    actions: {
+      extend(room, set, inc, body) {
+        const add = Math.min(600, Math.max(10, Number(body.seconds) || 60));
+        if ((room.gs.endsAtMs || 0) > Date.now()) {
+          inc['gs.endsAtMs'] = add * 1000;
+          room.gs.endsAtMs = room.gs.endsAtMs + add * 1000;
+        } else {
+          room.gs.endsAtMs = set['gs.endsAtMs'] = Date.now() + add * 1000;
+        }
+      }
+    },
+
+    events: {
+      // Both outcomes are the same shape, because the forecast is charged
+      // whether or not the answer lands. That is what makes it a prediction
+      // rather than a score.
+      async clear(room, ctx) { return forecastHole(room, ctx, true); },
+      async miss(room, ctx) { return forecastHole(room, ctx, false); }
+    }
   }
 };
+
+/**
+ * One hole of Beat the Forecast.
+ *
+ * The client reports what the app told THAT student to expect of this
+ * question. It is clamped hard: nobody can claim they were expected to fail
+ * and then bank a huge margin for getting it right.
+ */
+async function forecastHole(room, ctx, correct) {
+  const expected = Math.min(95, Math.max(5, Math.round(Number(ctx.body.expected) || 50)));
+  // The last hole is 'defend it' - a question they have mastered and not seen
+  // for a while. It pays double, and it costs double, so the strongest
+  // students finally have something to lose.
+  const weight = ctx.body.defend ? 2 : 1;
+
+  room.gs.actual = (room.gs.actual || 0) + (correct ? 100 * weight : 0);
+  room.gs.expected = (room.gs.expected || 0) + expected * weight;
+  room.gs.holes = (room.gs.holes || 0) + 1;
+
+  const inc = { 'gs.expected': expected * weight, 'gs.holes': 1 };
+  if (correct) inc['gs.actual'] = 100 * weight;
+  await ctx.commit({ inc });
+
+  // What comes back is this student's own arithmetic, for their phone only.
+  return {
+    expected: expected, weight: weight,
+    got: correct ? 100 * weight : 0,
+    delta: (correct ? 100 * weight : 0) - expected * weight
+  };
+}
 
 // Verbs are checked before a read is paid for, and the room's game is not
 // known until after it. So the cheap check is against the union of every
@@ -1192,9 +1293,13 @@ async function handleRoomEvent(request, env) {
     }
     // Only pay for a write when this student is actually new to the room.
     if (!known) {
-      room.players[studentId] = { name: name, cleared: 0 };
+      // Identity ONLY. `cleared` is Buy Time’s field, and writing it here put
+      // it on every player of every format - a leak of exactly the kind the
+      // seam exists to stop. Buy Time’s own increment creates it when needed,
+      // because a Firestore increment treats a missing field as zero.
+      room.players[studentId] = { name: name };
       await commitRoom(env, classCode, roomCode, {
-        set: { ['players.' + studentId]: { name: name, cleared: 0 } },
+        set: { ['players.' + studentId]: { name: name } },
         local: room
       });
     }
@@ -1206,7 +1311,7 @@ async function handleRoomEvent(request, env) {
   const def = defOf(room);
   if (!def) return json({ error: 'unknown game', game: gameOf(room) }, 400);
 
-  if (!known) room.players[studentId] = { name: name, cleared: 0 };
+  if (!known) room.players[studentId] = { name: name };
 
   if (room.state !== 'running') return json({ error: 'round is not running' }, 409);
 

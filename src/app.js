@@ -1473,14 +1473,69 @@
         if (j.focused) return 'Double step - ' + chapterLabel(j.lane) + ' was the focus';
         return chapterLabel(j.lane) + ' moves up one';
       }
+    },
+
+    forecast: {
+      // The room's margin, and nothing else. A student's OWN margin is shown
+      // below the question and never leaves this phone.
+      banner: function (r, g) {
+        var m = g.margin || 0;
+        var mine = LIVE.fc ? LIVE.fc.mine : 0;
+        return '<div class="card" style="padding:12px 14px;margin-bottom:10px">' +
+          '<div style="display:flex;justify-content:space-between;font-size:0.85rem">' +
+          '<span class="dim">The room</span>' +
+          '<span><b>' + (m > 0 ? '+' : '') + m.toFixed(1) + '</b> vs forecast</span></div>' +
+          '<div style="display:flex;justify-content:space-between;font-size:0.85rem;margin-top:4px">' +
+          '<span class="dim">You</span>' +
+          '<span class="' + (mine > 0 ? 'goodline' : mine < 0 ? 'warnline' : '') + '">' +
+          '<b>' + (mine > 0 ? '+' : '') + (mine / 100).toFixed(1) + '</b></span></div>' +
+          '<p class="faint" style="margin:6px 0 0">Your number is yours. It is never sent to the wall.</p>' +
+          '</div>';
+      },
+      clockMs: function (g) { return g.endsAtMs || null; },
+      outcome: function (r, g) {
+        var m = g.margin || 0;
+        return {
+          won: m > 0.05,
+          title: m > 0.05 ? 'The room beat its forecast'
+               : m < -0.05 ? 'The room came up short' : 'Exactly as predicted',
+          detail: (m > 0 ? '+' : '') + m.toFixed(1) + ' across everyone'
+        };
+      },
+      say: function (j, correct) {
+        var d = (j.delta || 0) / 100;
+        var head = j.weight > 1 ? 'Defending it \u00b7 ' : '';
+        if (correct) {
+          return head + 'Right. You were expected to get this ' + j.expected +
+                 ' times in 100 \u2014 ' + (d > 0 ? '+' : '') + d.toFixed(1) + ' for you.';
+        }
+        return head + 'Missed. You were expected to get this ' + j.expected +
+               ' times in 100 \u2014 ' + d.toFixed(1) + ' for you.';
+      }
     }
   };
+
+  // What the app expects of THIS student on THIS question, from their own
+  // Leitner history, as a percentage. A box they have mastered is a high
+  // expectation; one they have never seen is a coin flip weighted down.
+  var FORECAST_BY_BOX = [40, 60, 78, 90];
+
+  function expectationFor(q, level) {
+    var r = S.progress[recKey(q.id, level || 1)];
+    var box = (r && r.box) || 0;
+    var base = FORECAST_BY_BOX[Math.min(FORECAST_BY_BOX.length - 1, box)];
+    // A question they keep missing is worth expecting less of, whatever box
+    // it is nominally in.
+    if (r && r.seen >= 3 && r.right / r.seen < 0.5) base = Math.max(20, base - 20);
+    return base;
+  }
 
   // Sent on join so the room can refuse a bundle that cannot render it, before
   // that phone costs a write or half-plays a game it does not have.
   var MY_GAMES = Object.keys(LIVE_GAMES);
 
   var LIVE = { code: '', room: null, poll: null, view: null, feedback: '', busy: false,
+               fc: null,
                misses: {}, lastJson: '', stale: '' };
 
   function chapterLabel(id) {
@@ -1535,14 +1590,48 @@
     return { q: mine[0], fromPool: false, allHands: false };
   }
 
+  // The last hole of Beat the Forecast is 'defend it': the question this
+  // student has mastered and gone longest without seeing. It pays double and
+  // costs double, so the strongest students finally have something to lose.
+  function defendQuestion() {
+    var best = null, oldest = Infinity;
+    allQuestions().forEach(function (q) {
+      var lv = levelOf(q.chapter);
+      var r = S.progress[recKey(q.id, lv)];
+      if (!r || r.box < MASTERY_BOX) return;
+      if ((r.last || 0) < oldest) { oldest = r.last || 0; best = q; }
+    });
+    return best;
+  }
+
   function serveNextLive() {
-    var pick = nextLiveQuestion();
+    var defend = false;
+    var pick = null;
+
+    if (liveGameOf(LIVE.room) === 'forecast') {
+      var g = liveState(LIVE.room);
+      var done = (LIVE.fc && LIVE.fc.holes) || 0;
+      if (done >= (g.holes || 10)) { LIVE.view = null; LIVE.done = true; return; }
+      if (done === (g.holes || 10) - 1) {
+        var dq = defendQuestion();
+        if (dq) { pick = { q: dq, fromPool: false, allHands: false }; defend = true; }
+      }
+    }
+
+    if (!pick) pick = nextLiveQuestion();
     if (!pick || !pick.q) { LIVE.view = null; return; }
     var lv = levelOf(pick.q.chapter);
     LIVE.view = prep(serve(pick.q, lv));
     LIVE.view._fromPool = pick.fromPool;
     LIVE.view._askedAt = Date.now();
     LIVE.view._level = servedLevel(pick.q, lv);
+    LIVE.view._defend = defend;
+    // Stamped at serve time on purpose. applyResult moves the Leitner box
+    // the instant an answer lands, so computing this afterwards would charge
+    // the student an expectation based on knowledge they proved in that very
+    // answer - inflating it on a hit, deflating it on a miss, and quietly
+    // shrinking every margin toward zero.
+    LIVE.view._expected = expectationFor(LIVE.view.q, LIVE.view._level || 1);
   }
 
   function liveAnswer() {
@@ -1562,13 +1651,16 @@
     if (v.correct) {
       var coTreat = !!LIVE.coTreat;
       LIVE.coTreat = false;
+      var fcExtra = forecastExtra(v);
       liveEvent('clear', {
         qid: v.q.id, topic: v.q.topic, chapter: v.q.chapter,
-        level: lv, bucket: bucket, fromPool: !!v._fromPool, coTreat: coTreat
+        level: lv, bucket: bucket, fromPool: !!v._fromPool, coTreat: coTreat,
+        expected: fcExtra.expected, defend: fcExtra.defend
       }).then(function (res) {
         LIVE.busy = false;
         if (res.ok) {
           LIVE.room = res.j.room;
+          forecastTally(res);
           var sdef = liveDef(LIVE.room);
           LIVE.feedback = sdef && sdef.say ? sdef.say(res.j, true) : 'Correct';
         } else {
@@ -1578,15 +1670,38 @@
       });
     } else {
       LIVE.misses[v.q.id] = true;
-      liveEvent('miss', { qid: v.q.id, topic: v.q.topic, chapter: v.q.chapter }).then(function (res) {
+      var fcMiss = forecastExtra(v);
+      liveEvent('miss', { qid: v.q.id, topic: v.q.topic, chapter: v.q.chapter,
+                          expected: fcMiss.expected, defend: fcMiss.defend }).then(function (res) {
         LIVE.busy = false;
         if (res.ok) LIVE.room = res.j.room;
+        forecastTally(res);
         var mdef = liveDef(LIVE.room);
         LIVE.feedback = res.ok && mdef && mdef.say ? mdef.say(res.j, false) : 'Saved locally.';
         render();
       });
     }
     render();
+  }
+
+  // Only Beat the Forecast cares about these, but sending them always is two
+  // integers on a request that is already going, and it keeps liveAnswer from
+  // having to know which game it is in.
+  function forecastExtra(v) {
+    if (!v) return { expected: 50, defend: false };
+    return {
+      // the number stamped when this question was served, never recomputed
+      expected: typeof v._expected === 'number' ? v._expected : expectationFor(v.q, v._level || 1),
+      defend: !!v._defend
+    };
+  }
+
+  // Keep this student's own running margin, on this phone, in hundredths.
+  function forecastTally(res) {
+    if (liveGameOf(LIVE.room) !== 'forecast' || !res || !res.ok) return;
+    LIVE.fc = LIVE.fc || { mine: 0, holes: 0 };
+    LIVE.fc.mine += Number(res.j.delta) || 0;
+    LIVE.fc.holes += 1;
   }
 
   function liveNext() {
@@ -1714,7 +1829,24 @@
     if (def.banner) h += def.banner(r, g);
 
     var v = LIVE.view;
+    if (!v && LIVE.done) {
+      var myMargin = ((LIVE.fc && LIVE.fc.mine) || 0) / 100;
+      return h + '<div class="card pad-lg center">' +
+        '<div style="font-size:2.4rem">&#9203;</div>' +
+        '<h2 style="margin-bottom:4px">That is your lot</h2>' +
+        '<p class="dim">You finished <b>' + (myMargin > 0 ? '+' : '') + myMargin.toFixed(1) +
+        '</b> against your own number.</p>' +
+        '<p class="faint">Only you ever saw that. The wall has the room total and nothing else.</p>' +
+        '</div>';
+    }
     if (!v) return h + '<div class="card"><p class="dim">Finding you a question…</p></div>';
+
+    if (liveGameOf(r) === 'forecast' && !v.answered) {
+      h += '<p class="faint center" style="margin:0 0 8px">' +
+        (v._defend ? '<b>Defending it</b> &middot; worth double &middot; ' : '') +
+        'the app expects you to get this <b>' + forecastExtra(v).expected +
+        '</b> times in 100</p>';
+    }
 
     h += '<div class="card pad-lg">' +
       '<span class="tag' + (v._fromPool ? ' star' : '') + '">' +
@@ -2187,7 +2319,7 @@
       // An impatient second tap on a cold start would write the player twice.
       if (LIVE.busy) return;
       LIVE.busy = true;
-      LIVE.code = code; LIVE.misses = {};
+      LIVE.code = code; LIVE.misses = {}; LIVE.fc = null;
       liveEvent('join').then(function (res) {
         LIVE.busy = false;
         // 426: the room is running a format this bundle does not carry.
@@ -2207,7 +2339,7 @@
     function exitLive() {
       stopLivePolling();
       LIVE.room = null; LIVE.view = null; LIVE.feedback = '';
-      LIVE.lastJson = ''; LIVE.stale = ''; LIVE.code = ''; LIVE.misses = {};
+      LIVE.lastJson = ''; LIVE.stale = ''; LIVE.code = ''; LIVE.misses = {}; LIVE.fc = null;
       S.screen = 'map'; render();
       if (syncEnabled()) syncProgress({ type: 'live' });
     }
