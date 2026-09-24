@@ -316,6 +316,147 @@ async function handleGrant(request, env) {
   return json({ ok: true, granted: tokens, students: ids.length });
 }
 
+/* ------------------------------------------------------- The Standing Order
+ *
+ * One mark, held by one student at a time, chased solo or in class.
+ *
+ * The rule that shapes everything here: FALL SHORT AND NOTHING IS WRITTEN,
+ * NOTHING IS SHOWN, NOBODY IS TOLD. A failed attempt costs a read and produces
+ * no record anywhere, so a student can chase this as many times as they like
+ * with no possibility of an audience. Only the holder is ever named - there is
+ * no second place, because there is no list.
+ */
+
+const STANDING_CACHE_MS = 60000;
+let standingCache = { key: null, at: 0, value: null };
+
+// Three days at full height, then the mark eases by a tenth a day and never
+// falls below 40% of what was set.
+//
+// This is how the weakest student in the room ends up holding the Standing
+// Order inside a fortnight without ever beating anybody: they do not take it
+// off a person, they clear a bar that came down to meet them. The holder is
+// not told they lost it either - losing is as private as failing.
+const STANDING_GRACE_DAYS = 3;
+const STANDING_DECAY_PER_DAY = 0.1;
+const STANDING_FLOOR = 0.4;
+
+function standingPath(env, classCode) {
+  return `projects/${env.FIREBASE_PROJECT_ID}/databases/(default)/documents/classes/${classCode}/meta/standing`;
+}
+
+/**
+ * Correct answers per hour, with the denominator clamped to a minute.
+ *
+ * The clamp is the whole reason a solo run and a run snatched between classes
+ * are comparable on one mark: without it a lucky forty-second sprint posts a
+ * rate nobody can ever reach, and the Standing Order dies that afternoon.
+ * WRONG answers are not subtracted - they simply spend time without paying,
+ * which is punishment enough and keeps the number honest.
+ */
+function perHour(correct, seconds) {
+  const hours = Math.max(Number(seconds) || 0, 60) / 3600;
+  return Math.round((Number(correct) || 0) / hours);
+}
+
+// What it actually takes to claim the mark today.
+function standingBar(mark, nowMs) {
+  if (!mark || !mark.rate) return 0;
+  const days = (nowMs - new Date(mark.setAt || 0).getTime()) / 86400000;
+  if (!(days > STANDING_GRACE_DAYS)) return mark.rate;
+  const eased = 1 - (days - STANDING_GRACE_DAYS) * STANDING_DECAY_PER_DAY;
+  return Math.round(mark.rate * Math.max(STANDING_FLOOR, eased));
+}
+
+async function readStanding(env, classCode, maxAgeMs) {
+  const key = classCode;
+  const age = maxAgeMs === undefined ? STANDING_CACHE_MS : maxAgeMs;
+  if (standingCache.key === key && Date.now() - standingCache.at < age) return standingCache.value;
+
+  const token = await getAccessToken(env);
+  const res = await fetch(`${FS}/${standingPath(env, classCode)}`, {
+    headers: { Authorization: `Bearer ${token}` }
+  });
+  // Nobody holds it yet. That is a normal state, and caching it stops an
+  // untouched class paying for a read on every look.
+  if (res.status === 404) { standingCache = { key, at: Date.now(), value: null }; return null; }
+  if (!res.ok) throw new Error('standing read failed: ' + res.status);
+  const doc = docToObject(await res.json());
+  standingCache = { key, at: Date.now(), value: doc };
+  return doc;
+}
+
+function publicStanding(mark, nowMs) {
+  if (!mark) return { holder: null, rate: 0, bar: 0, easing: false };
+  const bar = standingBar(mark, nowMs);
+  return {
+    holder: mark.holderName || null,
+    rate: mark.rate || 0,
+    bar: bar,
+    easing: bar < (mark.rate || 0),
+    setAt: mark.setAt || null
+  };
+}
+
+async function handleStandingGet(url, env) {
+  const classCode = slug(url.searchParams.get('classCode'));
+  if (!classCode) return json({ error: 'classCode is required' }, 400);
+  const mark = await readStanding(env, classCode);
+  return json({ ok: true, standing: publicStanding(mark, Date.now()) });
+}
+
+async function handleStandingPost(request, env) {
+  let body;
+  try { body = await request.json(); } catch { return json({ error: 'invalid json' }, 400); }
+
+  const classCode = slug(body.classCode);
+  const name = String(body.name || '').trim().slice(0, 80);
+  const studentId = slug(name);
+  if (!classCode || !studentId) return json({ error: 'classCode and name are required' }, 400);
+
+  // Clamped server-side. The client never names its own rate.
+  const asked = Math.min(60, Math.max(1, Math.round(Number(body.asked) || 0)));
+  const correct = Math.min(asked, Math.max(0, Math.round(Number(body.correct) || 0)));
+  const seconds = Math.min(7200, Math.max(1, Math.round(Number(body.seconds) || 0)));
+  const rate = perHour(correct, seconds);
+
+  const now = Date.now();
+  const mark = await readStanding(env, classCode);
+  const bar = standingBar(mark, now);
+
+  // FALL SHORT AND NOTHING HAPPENS. No write, no record, no trace that this
+  // student ever tried. This branch is the feature.
+  if (rate <= bar) {
+    return json({ ok: true, took: false, rate, bar, standing: publicStanding(mark, now) });
+  }
+
+  const next = {
+    holder: studentId,
+    holderName: name,
+    rate: rate,
+    correct: correct,
+    asked: asked,
+    seconds: seconds,
+    setAt: new Date().toISOString()
+  };
+
+  const token = await getAccessToken(env);
+  const fields = {};
+  for (const k of Object.keys(next)) fields[k] = toFsValue(next[k]);
+  const res = await fetch(`${FS}/${standingPath(env, classCode)}`, {
+    method: 'PATCH',
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ fields })
+  });
+  if (!res.ok) {
+    const t = await res.text();
+    return json({ error: 'standing write failed', detail: t.slice(0, 300) }, 502);
+  }
+
+  standingCache = { key: classCode, at: Date.now(), value: next };
+  return json({ ok: true, took: true, rate, bar, standing: publicStanding(next, now) });
+}
+
 // Students type their own names, so duplicates and typos are inevitable.
 // Removing a row is instructor-only and permanent.
 async function handleDelete(url, env) {
@@ -1116,6 +1257,14 @@ export default {
         if (url.pathname === '/api/room' && request.method === 'POST') {
           if (!backendReady(env)) return json(NOT_CONFIGURED, 503);
           return await handleRoomControl(request, env);
+        }
+        if (url.pathname === '/api/standing' && request.method === 'GET') {
+          if (!backendReady(env)) return json(NOT_CONFIGURED, 503);
+          return await handleStandingGet(url, env);
+        }
+        if (url.pathname === '/api/standing' && request.method === 'POST') {
+          if (!backendReady(env)) return json(NOT_CONFIGURED, 503);
+          return await handleStandingPost(request, env);
         }
         if (url.pathname === '/api/grant' && request.method === 'POST') {
           if (!backendReady(env)) return json(NOT_CONFIGURED, 503);

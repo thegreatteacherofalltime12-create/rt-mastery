@@ -6,8 +6,8 @@ class of exactly ten, and the honest flaw in each — so that a format is not
 rebuilt from scratch, and so that the shared plumbing is designed against real
 candidates rather than imagined ones.
 
-**Buy Time**, **The Supply Closet**, **Three Certainties** and **Field Day** are
-built. Everything else is a design, not a promise.
+**Buy Time**, **The Supply Closet**, **Three Certainties**, **Field Day** and **The
+Standing Order** are built. Everything else is a design, not a promise.
 
 ---
 
@@ -93,7 +93,7 @@ layer, the level ladder, Leitner scheduling, and six question types.
 
 | Format | Build | Firestore | Straggler-safe by |
 |---|---|---|---|
-| The Standing Order | small | 1 doc, 60s cache | only the holder is ever named |
+| ~~The Standing Order~~ | **built** | 1 doc, 60s cache | only the holder is ever named |
 | ~~The Supply Closet~~ | **built** | zero extra ops | purchases are private |
 | ~~Field Day~~ | **built** | zero extra ops | the racers are chapters, not students |
 | ~~Three Certainties~~ | **built** | 1 write/round | calibration is personal, not ranked |
@@ -205,15 +205,25 @@ only report 0 / 33 / 67 / 100%, so the tally accumulates across every round ever
 played and no verdict is offered until there are nine; before that the screen
 says plainly that one round is too few to say anything true.
 
-### The Standing Order — a rotating bounty
+### The Standing Order — a rotating bounty  *(built)*
 
 One mark, held by one student, huntable solo or in class. **Fall short and
 nothing is written, nothing is shown, nobody is told.** Only the holder is ever
 named.
 
-A happy accident of n=10: picking the mark at random from the top ten means the
-top ten is *everybody*, so the weakest student in the room will hold the
-Standing Order within a fortnight without ever beating anyone.
+The rate is correct answers per hour with the denominator clamped to a minute.
+That clamp is what makes a solo run and one snatched between classes comparable
+on one mark: without it a lucky forty-second sprint posts a rate nobody can
+reach and the whole thing dies that afternoon.
+
+**As built, the mark eases rather than rotating.** The design handed it to a
+random student from the top ten, which at n=10 is everybody. Easing reaches the
+same place without a scheduler or a roster read: the mark holds full height for
+three days, then drops a tenth a day and never below 40%. So the weakest student
+in the room still holds it inside a fortnight without ever beating anyone — the
+bar came down to meet them, and they cleared it themselves rather than being
+handed a title. Losing it is as private as failing: the former holder is not
+told either.
 
 ### The Walk-Through — accessibility audit as Battleship
 

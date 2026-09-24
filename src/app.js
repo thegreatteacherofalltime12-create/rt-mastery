@@ -665,7 +665,11 @@
     var html = '';
     switch (S.screen) {
       case 'welcome': html = viewWelcome(); break;
-      case 'map': html = viewMap(); break;
+      case 'map':
+        // One cached read, once per session, for a number the map shows.
+        if (!SO.loaded) { SO.loaded = true; loadStanding().then(function () { if (S.screen === 'map') render(); }); }
+        html = viewMap();
+        break;
       case 'play': html = viewPlay(); break;
       case 'results': html = viewResults(); break;
       case 'exams': html = viewExams(); break;
@@ -774,6 +778,25 @@
       (bu ? '25 questions, every chapter, 15 minutes, no second chances. Beat 80% to clear it.'
           : 'Locked. Reach ' + Math.round(UNLOCK_AT * 100) + '% mastery in every chapter to challenge it.') + '</p>' +
       '<button class="btn sm" data-boss ' + (bu ? '' : 'disabled') + '>' + (bu ? 'Enter the boss fight' : 'Locked') + '</button>' +
+      '</div>';
+
+    // The Standing Order. The holder is the ONLY name this card ever shows -
+    // there is no second place because there is no list.
+    var mk = SO.mark;
+    h += '<div class="card" style="margin-top:14px">' +
+      '<h3 style="margin-bottom:4px">\uD83C\uDFF4 The Standing Order</h3>' +
+      (mk && mk.holder
+        ? '<p class="faint" style="margin:0 0 6px">Held by <b>' + esc(mk.holder) + '</b> at <b>' +
+          mk.rate + '</b> correct an hour.</p>' +
+          (mk.easing
+            ? '<p class="faint" style="margin:0 0 10px">It has been standing a while, so it is ' +
+              'easing: <b>' + mk.bar + '</b> an hour takes it today.</p>'
+            : '<p class="faint" style="margin:0 0 10px">Beat <b>' + mk.bar + '</b> an hour to take it.</p>')
+        : '<p class="faint" style="margin:0 0 10px">Nobody holds it yet. Fifteen questions, ' +
+          'as fast as you can get them right.</p>') +
+      '<p class="faint" style="margin:0 0 10px">Fall short and nothing is written down and ' +
+      'nobody is told. Chase it as often as you like.</p>' +
+      '<button class="btn ghost" data-standing>Chase it</button>' +
       '</div>';
 
     var verdict = certVerdict();
@@ -1194,6 +1217,46 @@
 
   // The point of the round is not the score, it is the sentence about Certain.
   // So that leads, and the percentage is demoted to the ordinary card below.
+  // Two outcomes and only one of them is an event. Falling short is stated
+  // plainly, once, with the fact that nothing was recorded - because that is
+  // the reassurance that makes it safe to try again.
+  function standingResults(r, right) {
+    var rate = r.rate || 0;
+    var res = SO.result;
+    var h = '<div class="card pad-lg center">' +
+      '<p class="dim" style="margin:0">Your rate</p>' +
+      '<div style="font-size:2.6rem;font-weight:800;line-height:1.15">' + rate + '</div>' +
+      '<p class="dim">correct an hour &middot; ' + right + ' of ' + r.views.length +
+      ' in ' + clockText(r.seconds || 0) + '</p></div>';
+
+    if (!syncEnabled()) {
+      h += '<div class="card"><p class="faint" style="margin:0">Your best on this device is <b>' +
+        (S.stats.bestRate || 0) + '</b>. Add a class code on the welcome screen to chase ' +
+        'the class mark.</p></div>';
+      return h;
+    }
+
+    if (!res) {
+      h += '<div class="card"><p class="faint" style="margin:0">Checking the mark\u2026</p></div>';
+      return h;
+    }
+
+    if (res.took) {
+      h += '<div class="card levelup center">' +
+        '<div style="font-size:2.2rem;line-height:1">\uD83C\uDFF4</div>' +
+        '<h3 style="margin:6px 0 4px">You hold the Standing Order</h3>' +
+        '<p class="dim" style="margin:0">The mark is yours at <b>' + res.rate +
+        '</b> an hour until somebody clears it.</p></div>';
+    } else {
+      h += '<div class="card center">' +
+        '<h3 style="margin:0 0 4px">Not this time</h3>' +
+        '<p class="dim" style="margin:0">The mark stands at <b>' + res.bar + '</b> an hour.</p>' +
+        '<p class="faint" style="margin:8px 0 0">Nothing was written down and nobody was told. ' +
+        'Go again whenever you like.</p></div>';
+    }
+    return h;
+  }
+
   function certResults(r, right) {
     var used = {};
     CERT_ORDER.forEach(function (k) { used[k] = { n: 0, right: 0 }; });
@@ -1255,6 +1318,7 @@
     var h = topbar(r.title + ' — done', null);
 
     if (r.mode === 'certainty') h += certResults(r, right);
+    if (r.mode === 'standing') h += standingResults(r, right);
 
     h += '<div class="card pad-lg center">' +
       '<div style="font-size:2.8rem;line-height:1">' + (pct >= 90 ? '&#127942;' : pct >= 70 ? '&#128077;' : '&#128170;') + '</div>' +
@@ -1694,6 +1758,52 @@
     render();
   }
 
+  // -------------------------------------------------------- The Standing Order
+  //
+  // One mark, held by one student, chased alone or between classes. Fall short
+  // and nothing is written, nothing is shown and nobody is told - so it can be
+  // chased as often as you like with no possibility of an audience.
+
+  var SO_SIZE = 15;
+  var SO = { mark: null, loaded: false, result: null };
+
+  // Must match the Worker: the denominator is clamped to a minute so a lucky
+  // sprint cannot post a rate nobody can reach. Shown live during a run only
+  // so the student can pace themselves; the Worker computes the real one.
+  function clockText(seconds) {
+    var t = Math.max(0, Math.round(seconds));
+    return Math.floor(t / 60) + String.fromCharCode(58) + String(t % 60).padStart(2, String.fromCharCode(48));
+  }
+
+  function perHour(correct, seconds) {
+    return Math.round(correct / (Math.max(seconds, 60) / 3600));
+  }
+
+  function loadStanding() {
+    if (!syncEnabled()) { SO.loaded = true; return Promise.resolve(); }
+    return fetch(API + '/standing?classCode=' + encodeURIComponent(S.profile.classCode))
+      .then(function (r) { return r.json(); })
+      .then(function (j) { if (j && j.ok) SO.mark = j.standing; SO.loaded = true; })
+      .catch(function () { SO.loaded = true; });
+  }
+
+  function startStandingOrder() {
+    var pool = allQuestions();
+    if (pool.length < SO_SIZE) return;
+    var picked = shuffle(pool).slice(0, SO_SIZE);
+    SO.result = null;
+    S.run = {
+      mode: 'standing',
+      title: 'The Standing Order',
+      views: picked.map(function (q) { return prep(serve(q, levelOf(q.chapter))); }),
+      idx: 0, streak: 0, xpStart: S.stats.xp,
+      deadline: null, hideFeedback: true, passMark: 0,
+      startedAt: Date.now()
+    };
+    S.screen = 'play';
+    render();
+  }
+
   function startCertainties() {
     var pool = allQuestions().filter(function (q) { return q.type === 'mc' || q.type === 'scenario' || q.type === 'multi'; });
     if (pool.length < CERT_SIZE) return;
@@ -1801,6 +1911,30 @@
     if (r.mode === 'practice') {
       S.stats.sessions++;
       r.promotedTo = checkPromotion(r.chapterId);   // may be null
+    }
+    if (r.mode === 'standing') {
+      var secs = Math.max(1, Math.round((Date.now() - r.startedAt) / 1000));
+      r.seconds = secs;
+      r.rate = perHour(right, secs);
+      // A personal best is kept on the device whether or not the mark moved,
+      // because a student with no class code still deserves something to beat.
+      S.stats.bestRate = Math.max(S.stats.bestRate || 0, r.rate);
+      if (syncEnabled()) {
+        fetch(API + '/standing', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            classCode: S.profile.classCode, name: S.profile.name,
+            correct: right, asked: r.views.length, seconds: secs
+          })
+        }).then(function (x) { return x.json(); })
+          .then(function (j) {
+            if (!j || !j.ok) return;
+            SO.mark = j.standing;
+            SO.result = { took: j.took, rate: j.rate, bar: j.bar };
+            if (S.screen === 'results') render();
+          })
+          .catch(function () { /* offline: the run simply did not happen */ });
+      }
     }
     if (r.mode === 'certainty') {
       S.stats.certRuns = (S.stats.certRuns || []).concat([{
@@ -2119,6 +2253,9 @@
         save(); render();
       };
     });
+
+    var so = app.querySelector('[data-standing]');
+    if (so) so.onclick = startStandingOrder;
 
     var tc = app.querySelector('[data-certainties]');
     if (tc) tc.onclick = startCertainties;
