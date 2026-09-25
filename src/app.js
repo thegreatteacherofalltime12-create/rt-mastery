@@ -14,12 +14,25 @@
   var UNLOCK_AT = 0.8;          // mastery at the current level that promotes a chapter
   var SESSION_SIZE = 12;        // questions per practice round
   var MAX_LEVEL = 3;
+  // A level worth promoting into has to be able to fill a whole round, or the
+  // student meets the same handful of questions every time. Measured against
+  // the present bank the smallest servable subset is ch6 at 13, so this clears
+  // every chapter at every level with one to spare - an earlier floor of 8 was
+  // justified by a claim that 12 would strand ch6 at level 2, which is not what
+  // the bank says.
+  var LEVEL_FLOOR = SESSION_SIZE;
 
   // Difficulty is a property of how a question is SERVED, not of the question.
   // The same item is worth more the harder the presentation.
+  //
+  // The blurbs name every shape the level really serves. They used to promise
+  // "Four options" and "Six options", which was true of the 169 single-answer
+  // items and false of the 42 select-alls, 16 matching grids and 4 ordering
+  // lists sitting alongside them - a student told to expect four options and
+  // handed a twelve-option select-all reads that as the levels being broken.
   var LEVELS = {
-    1: { name: 'Recognise', xp: 10, blurb: 'Four options' },
-    2: { name: 'Discriminate', xp: 15, blurb: 'Six options' },
+    1: { name: 'Recognise', xp: 10, blurb: 'Four options, select-alls, matching and ordering' },
+    2: { name: 'Discriminate', xp: 15, blurb: 'Six options, and select-alls two options longer' },
     3: { name: 'Recall', xp: 25, blurb: 'No options — type it' }
   };
   // ------------------------------------------------------------ Supply Closet
@@ -39,7 +52,7 @@
       name: 'Adapted Equipment', icon: '♿', cost: 4,
       blurb: 'Serve this question one level down.',
       // The one shipped gap this closes: promotion is automatic at 80%, but
-      // servedLevel() only steps a question DOWN when it physically cannot be
+      // serve() only steps a question DOWN when it physically cannot be
       // written in. A student promoted to Recall and drowning had no way back.
       hint: 'Use it when a level is too much today. Nobody is told.'
     },
@@ -116,8 +129,34 @@
 
   // Which tokens apply to the question on screen right now. A token that could
   // do nothing here is not offered, so nobody wastes one finding out.
+  // One source only. This used to prefer v._level, which serveNextLive and
+  // adaptDown overwrote with a predicted level that disagreed with the shape
+  // actually on screen - so the Adapted Equipment token was offered on a
+  // four-option question and withheld from a genuine level 2.
   function viewLevel(v) {
-    return (v && (v._level || (v.q && v.q._level))) || 1;
+    return (v && v.q && v.q._level) || 1;
+  }
+
+  // Everything about a served question the student can actually see. Only ever
+  // used to tell two servings of one item apart; never stored, never shown.
+  function shapeSig(q) {
+    return q.type + '|' + (q.choices || []).join('\u0001') + '|' + q.prompt +
+           '|' + (q.pairs || []).length + '|' + (q.items || []).join('\u0001');
+  }
+
+  // Whether Adapted Equipment would change anything. It is offered only where
+  // the answer is yes, because a question authored as free recall is the same
+  // blank typing box at every level: buying a step down on one charged 4
+  // tokens, redrew a byte-identical widget, then paid the answer 10 XP instead
+  // of 25 and filed it on a rung the chapter is not on. Asked of serve()
+  // itself rather than excluded by type - a transform added later must not
+  // have to remember to come back here.
+  function adaptWouldChange(v) {
+    var lv = viewLevel(v);
+    if (lv <= 1) return false;
+    var orig = questionById(v.q.id);
+    if (!orig) return false;
+    return shapeSig(serve(orig, lv - 1)) !== shapeSig(v.q);
   }
 
   function offersFor(v, live) {
@@ -127,7 +166,7 @@
     if (isChoice && !v._dropped) out.push('consult');
     if (v.type === 'fill' && !v._chart) out.push('chart');
     if (!live && !v._protected) out.push('doc');
-    if (!live && viewLevel(v) > 1 && !v._adapted) out.push('adapted');
+    if (!live && !v._adapted && adaptWouldChange(v)) out.push('adapted');
     if (live && !tokenLocked('cotreat')) out.push('cotreat');
     return out.filter(function (id) { return !tokenLocked(id); });
   }
@@ -270,6 +309,18 @@
     return null;
   }
 
+  // The authored question behind a served one. Memoised because offersFor asks
+  // for it on every render of every question card and allQuestions() rebuilds
+  // all 236 objects each time it is called.
+  var byIdMemo = null;
+  function questionById(id) {
+    if (!byIdMemo) {
+      byIdMemo = {};
+      allQuestions().forEach(function (q) { byIdMemo[q.id] = q; });
+    }
+    return byIdMemo[id] || null;
+  }
+
   // Level 1 keeps the bare question id so progress saved before levels existed
   // still counts. Higher levels get their own record and their own climb.
   function recKey(qid, level) { return level > 1 ? qid + '@' + level : qid; }
@@ -287,9 +338,27 @@
            q.type === 'fill';
   }
 
-  function servedLevel(q, level) {
-    if (level >= 3 && !canWriteIn(q)) return 2;
-    return level;
+  // The level a question will REALLY be served at, asked of serve() itself
+  // rather than predicted by a second set of branches. The old predictor
+  // (servedLevel) had already drifted from serve(): it claimed level 2 for 67
+  // of 236 questions and level 3 for 51 that serve() in fact handed out as
+  // level 1. Anything that needs to know a level asks here.
+  function effectiveLevel(q, level) {
+    return serve(q, level || 1)._level || 1;
+  }
+
+  // The questions in a chapter that serve() will really hand out at this level.
+  // Memoised because the bank is static and chapterMastery runs on every render
+  // of the map, once per chapter.
+  var servableMemo = {};
+  function servableAt(ch, lv) {
+    var k = ch.id + '@' + lv;
+    if (!servableMemo[k]) {
+      servableMemo[k] = ch.questions.filter(function (q) {
+        return effectiveLevel(q, lv) === lv;
+      }).map(function (q) { return Object.assign({ chapter: ch.id }, q); });
+    }
+    return servableMemo[k];
   }
 
   function rec(qid, level) {
@@ -305,8 +374,15 @@
 
   function chapterMastery(ch, level) {
     var lv = level || levelOf(ch.id);
-    var total = ch.questions.length, done = 0;
-    ch.questions.forEach(function (q) { if (isMastered(q.id, lv)) done++; });
+    // Only a question that can BE served at this level can ever record progress
+    // at it, so counting the rest in the denominator put 80% permanently out of
+    // reach and froze the ladder. Numerator walks the SAME list on purpose: the
+    // old live-round stamp wrote qid@2/qid@3 records for questions that are not
+    // servable there, and counting those would push pct above 1.0 and promote a
+    // chapter on mastery nobody demonstrated.
+    var pool = servableAt(ch, lv);
+    var total = pool.length, done = 0;
+    pool.forEach(function (q) { if (isMastered(q.id, lv)) done++; });
     return { done: done, total: total, pct: total ? done / total : 0, level: lv };
   }
 
@@ -318,6 +394,13 @@
     var lv = levelOf(chapterId);
     if (lv >= MAX_LEVEL) return null;
     if (chapterMastery(ch, lv).pct < UNLOCK_AT) return null;
+    // Never promote into a level this chapter cannot fill. A chapter with no
+    // servable subset up there would build an empty practice round; one with a
+    // handful would serve the same few questions forever, which is the same
+    // stall wearing a higher number. The floor is a whole round, and the
+    // thinnest level in the present bank clears it: ch6 has 18 servable at
+    // level 2 and 13 at level 3.
+    if (servableAt(ch, lv + 1).length < LEVEL_FLOOR) return null;
     S.levels[chapterId] = lv + 1;
     save();
     return lv + 1;
@@ -336,8 +419,19 @@
     var total = 0, done = 0;
     CHAPTERS.forEach(function (c) {
       for (var lv = 1; lv <= MAX_LEVEL; lv++) {
-        total += c.questions.length;
-        c.questions.forEach(function (q) { if (isMastered(q.id, lv)) done++; });
+        // Same reachability rule as chapterMastery. The denominator used to be
+        // three levels times every question, most of which can never be served
+        // at two of those levels - so a student who had mastered everything she
+        // could actually be shown still read as well short, and a chapter card
+        // could say 100% while this bar was stuck a long way below it. No
+        // percentage is quoted here on purpose: the ceiling moves whenever
+        // serve() gains or loses a transform, and the figure that used to be
+        // written down here was five points out within one change of it.
+        // test/levels.mjs pins the property instead - 'overall mastery can
+        // reach 100%' fails the build if this denominator stops being fillable.
+        var pool = servableAt(c, lv);
+        total += pool.length;
+        pool.forEach(function (q) { if (isMastered(q.id, lv)) done++; });
       }
     });
     return { done: done, total: total, pct: total ? done / total : 0 };
@@ -389,28 +483,242 @@
 
   // ---------------------------------------------------------------- session building
 
+  // How much the student's thumb has to do, easiest first: pick one of a few,
+  // pick several, wire up a grid, drag a list into order, type it from memory.
+  var SHAPE_RANK = { mc: 0, scenario: 0, multi: 1, match: 2, order: 3, fill: 4 };
+
+  // Ranked off the SERVED question rather than the authored one, because the
+  // shape is a property of the serving: a match is a grid at level 2 and a
+  // typing box at level 3, and the ramp has to follow what is on screen.
+  function shapeRank(served) {
+    return SHAPE_RANK[served.type] === undefined ? 0 : SHAPE_RANK[served.type];
+  }
+
+  // One more than the highest rank, counted rather than written as 5. The ramp
+  // below walks 0..SHAPE_COUNT-1 and emits each group; a sixth shape added to
+  // SHAPE_RANK against a hardcoded 5 would not merely misorder the round, it
+  // would drop every question of that shape out of it.
+  var SHAPE_COUNT = Object.keys(SHAPE_RANK).reduce(function (n, k) {
+    return Math.max(n, SHAPE_RANK[k] + 1);
+  }, 1);
+
+  // Which Leitner box this question sits in AT THIS LEVEL. Each level keeps its
+  // own record, so reading the box without the level answers about a rung the
+  // round is not on.
+  function boxOf(q, level) {
+    var r = S.progress[recKey(q.id, level || 1)];
+    return Math.min(3, Math.max(0, (r && r.box) || 0));
+  }
+
   // Pick questions weighted toward what the student has not locked in yet.
   function buildSession(pool, size, level) {
     var lv = level || 1;
+    // A session serves ONE level. Questions that cannot take this level used to
+    // come through anyway, silently served at level 1, which is why a student
+    // could hit three questions in a row in three different shapes. Serving
+    // fewer is the right answer here: padding with an easier level is exactly
+    // the jumble being removed.
+    var pure = pool.filter(function (q) { return effectiveLevel(q, lv) === lv; });
     var byBox = [[], [], [], []];
-    pool.forEach(function (q) {
-      var r = S.progress[recKey(q.id, lv)];
-      var b = Math.min(3, Math.max(0, (r && r.box) || 0));
-      byBox[b].push(q);
-    });
+    pure.forEach(function (q) { byBox[boxOf(q, lv)].push(q); });
     var picked = [];
     // box 0 and 1 first (never seen / struggling), then 2, then mastered review.
-    // At level 3, put the genuinely write-in-able questions at the front of each
-    // box so a Recall round actually feels like recall rather than more options.
     [0, 1, 2, 3].forEach(function (b) {
       if (picked.length >= size) return;
       var bucket = shuffle(byBox[b]);
-      if (lv >= 3) {
-        bucket = bucket.filter(canWriteIn).concat(bucket.filter(function (q) { return !canWriteIn(q); }));
-      }
       picked = picked.concat(bucket.slice(0, size - picked.length));
     });
-    return shuffle(picked);
+    // WHICH questions, and nothing about the order: that is buildViews' job,
+    // and it is the same job for every round in the game. The ramp used to live
+    // at the end of this function, which is why three of the four round
+    // builders never got it - they do not call buildSession.
+    return picked;
+  }
+
+  // The one ordering rule in the game, and the only place a `views` array is
+  // ever built. All five round builders end here; test/levels.mjs reads this
+  // file and fails if a `views` array is assembled anywhere else, so the next
+  // one cannot quietly go back to a flat shuffle - which is what three of the
+  // four were still doing while the ramp lived inside buildSession, since
+  // buildSession has one caller.
+  //
+  // `levelFor` is either the single level the whole round runs at, or a
+  // function of the question for rounds that do not have one (the exams, which
+  // serve each question at its own chapter's level).
+  //
+  // Two keys, in this order:
+  //
+  //   1. SHAPE, easiest first: every four-option question, then the
+  //      select-alls, then the matching grids, then the ordering lists, then
+  //      the write-ins. A round used to be one flat shuffle, so a student met
+  //      four options, then a grid, then a select-all, and read the whipsaw as
+  //      the levels being mixed up - which is the bug that was reported.
+  //
+  //   2. Leitner box, lowest first, WITHIN a shape group. Shape alone is a
+  //      deterministic sort, so a chapter's one ordering list landed at the
+  //      very last position of every round it was drawn into; a student who
+  //      backs out of a round on her phone therefore skipped the same items
+  //      every time, and they are the items she is weakest on. Sorting by box
+  //      inside the group puts the weakest question OF EACH SHAPE first, so the
+  //      work that matters is met early in its own group rather than last
+  //      overall. Selection is untouched - buildSession still decides which
+  //      questions are in the round.
+  //
+  // Shuffled before the sort, and Array.prototype.sort is stable, so questions
+  // in the same box keep that shuffle: without it every round would open with
+  // the same question in the same place.
+  function buildViews(questions, levelFor) {
+    var at = typeof levelFor === 'function'
+      ? levelFor
+      : function () { return levelFor || 1; };
+    var groups = [];
+    shuffle(questions).forEach(function (q) {
+      // Served ONCE, and the same serving is ranked, sorted and shown. serve()
+      // can hand back a level other than the one asked for, and it draws a
+      // different pair out of a matching grid on every call - so serving again
+      // to read the shape off it would rank one question and display another.
+      var v = serve(q, at(q));
+      var r = shapeRank(v);
+      if (!groups[r]) groups[r] = [];
+      groups[r].push(v);
+    });
+    var ramped = [];
+    for (var r = 0; r < SHAPE_COUNT; r++) {
+      if (!groups[r]) continue;
+      // The box of the level it is actually SERVED at, which is the level the
+      // answer will be filed under.
+      groups[r].sort(function (a, b) { return boxOf(a, a._level) - boxOf(b, b._level); });
+      ramped = ramped.concat(groups[r]);
+    }
+    return ramped.map(prep);
+  }
+
+  // Cross-chapter rounds (Ghost Duel, the Standing Order, Three Certainties)
+  // have to choose ONE level or they mix shapes twice over: chapters sit at
+  // different levels, and serve() quietly drops a question that cannot take its
+  // chapter's level.
+  //
+  // The level chosen is the one the MOST chapters sit at, and the questions are
+  // drawn only from the chapters that are actually there. Taking the LOWEST
+  // level instead let one lagging chapter decide for all five: with four
+  // chapters at Recall and one still at Recognise, every cross-chapter round
+  // ran at level 1, paid 10 XP for work worth 25 and wrote its records under
+  // level-1 keys that no chapter above level 1 ever reads again - which is also
+  // what silently broke Ghost Duel's blind spot, since it zeroed a box the
+  // chapter card no longer counts. It also removed the cliff at the end of the
+  // ladder: the Standing Order used to flip from 15 four-option questions to 15
+  // typed write-ins the instant the last chapter promoted, and the rate it
+  // posts to the class standing carries no level, so finishing the ladder sank
+  // a student's own best mark. The majority moves one chapter at a time, so the
+  // shift now happens in the middle of the climb rather than on its last step.
+  //
+  // Ties break UPWARD: two chapters at Discriminate and two at Recognise serves
+  // Discriminate, because a round pitched slightly high is study and a round
+  // pitched low is XP the student has already earned once.
+  //
+  // THE TRADE-OFF, stated once: a cross-chapter round cannot be all three of
+  // (a) drawn from every chapter, (b) served at one level, and (c) filed on the
+  // rung the chapter card reads. Chapters sit on different rungs, so drawing
+  // from all five forces either two shapes in one round or a record written
+  // under a level that chapter's card no longer counts. This picks (b) and (c)
+  // and pays for it in (a) - and the rule is: run at the level the MOST
+  // chapters can fill the round from, ties upward, drawing only from those
+  // chapters. What the student loses is coverage, so the mode's own card names
+  // the chapters tonight's round can reach (crossReach below). Never silent.
+  //
+  // The chapter count is what is maximised, not the level: walking down from
+  // the majority level until the pool was merely big enough could land on a
+  // level with FEWER chapters than a level above it, narrowing the round for
+  // nothing.
+  function crossPool(pool, want, cap) {
+    var ceiling = Math.min(cap || MAX_LEVEL, MAX_LEVEL);
+    // Three Certainties caps at 2, so a chapter at Recall counts toward level 2
+    // here rather than toward a level this round will never serve.
+    var at = function (chapterId) { return Math.min(ceiling, levelOf(chapterId)); };
+
+    var best = null;
+    // Downwards, and a strictly-greater test, so an equal chapter count keeps
+    // the HIGHER level - that is the upward tie-break.
+    for (var lv = ceiling; lv >= 1; lv--) {
+      var seen = {};
+      var p = pool.filter(function (q) {
+        if (at(q.chapter) !== lv || effectiveLevel(q, lv) !== lv) return false;
+        seen[q.chapter] = true;
+        return true;
+      });
+      if (p.length < want) continue;
+      var chs = CHAPTERS.filter(function (c) { return seen[c.id]; })
+        .map(function (c) { return c.id; });
+      if (!best || chs.length > best.chapters.length) {
+        best = { level: lv, pool: p, chapters: chs };
+      }
+    }
+    if (best) return best;
+
+    // No single level fills the round from its own chapters alone, so fall back
+    // to the whole bank at level 1 - a short round is better than a mode the
+    // student cannot open. Filtered even here: a question authored as free
+    // recall is served at level 3 whatever is asked for, and one of those in a
+    // level-1 round is the mixed shapes coming back.
+    var wide = pool.filter(function (q) { return effectiveLevel(q, 1) === 1; });
+    var ids = {};
+    wide.forEach(function (q) { ids[q.chapter] = true; });
+    return {
+      level: 1, pool: wide,
+      chapters: CHAPTERS.filter(function (c) { return ids[c.id]; }).map(function (c) { return c.id; })
+    };
+  }
+
+  // What a cross-chapter mode can reach tonight, in a sentence for its own card.
+  // The coverage the rule above gives up is the student's to see: without this
+  // the Standing Order says "as fast as you can get them right" while quietly
+  // drawing from two chapters of five, and a ghost recorded on a chapter that
+  // is sitting this one out can never be raced.
+  //
+  // A capped mode adds a second thing the student is owed. Three Certainties
+  // stops at level 2 because certStrip has no bet bar for a write-in, so a
+  // chapter standing at Recall is drawn into a Discriminate round and its
+  // answers are filed at qid@2 - a key chapterMastery(ch, 3) does not read.
+  // The work is real and counts on the overall bar, but that chapter's card
+  // will not move, and a card that says only which chapters it reached would
+  // be telling her something untrue about what she just played. Uncapped modes
+  // never hit this: their ceiling is MAX_LEVEL, so no chapter can stand above
+  // the round.
+  function crossReach(pool, want, cap) {
+    var cp = crossPool(pool, want, cap);
+    var names = cp.chapters.map(function (id) {
+      var c = chapterById(id);
+      return c ? 'Ch ' + c.number : id;
+    });
+    var lvName = (LEVELS[cp.level] || LEVELS[1]).name;
+    if (!names.length) return '';
+    var list = names.length === 1 ? names[0]
+      : names.slice(0, -1).join(', ') + ' and ' + names[names.length - 1];
+
+    var above = cp.chapters.filter(function (id) { return levelOf(id) > cp.level; })
+      .map(function (id) {
+        var c = chapterById(id);
+        return c ? 'Ch ' + c.number : id;
+      });
+    var note = '';
+    if (above.length) {
+      var aList = above.length === 1 ? above[0]
+        : above.slice(0, -1).join(', ') + ' and ' + above[above.length - 1];
+      note = ' ' + aList + (above.length === 1 ? ' has' : ' have') +
+        ' already climbed past ' + lvName + ', so tonight counts on your overall bar ' +
+        'but will not move ' + (above.length === 1 ? 'that chapter card' : 'those chapter cards') + '.';
+    }
+
+    if (names.length >= CHAPTERS.length) {
+      return 'Tonight it runs at ' + lvName + ' and reaches every chapter.' + note;
+    }
+    // 'the chapters standing there' was true only while the ceiling was
+    // MAX_LEVEL. Three Certainties caps at 2, so a chapter drawn into its
+    // round may be standing a rung ABOVE it - the sentence said the opposite
+    // of the one below it on the same card.
+    return 'Tonight it runs at ' + lvName + ', so it draws from ' + list +
+      ' — the chapter' + (names.length === 1 ? '' : 's') +
+      ' that can fill it. The others come back when they reach the same rung.' + note;
   }
 
   function gradedPool(chapterIds, topics) {
@@ -429,15 +737,38 @@
   // engine already renders and grades. Level 2 is still an `mc`; level 3 is
   // still a `fill`. No new question types, no new grading branches.
   function serve(q, level) {
-    var lv = servedLevel(q, level || 1);
+    // Level 3 only exists for items that can become a write-in. What the rest
+    // top out at depends on the shape: an option list with extras tops out at
+    // the six-option level 2, but a matching grid or an ordering list has no
+    // level-2 branch below, so it tops out at its level-1 form and appears in
+    // no level-2 round at all. Inlined rather than a named helper on purpose:
+    // the helper this replaces was called from outside serve() and drifted from
+    // these branches, claiming a level the student was never shown.
+    var lv = level || 1;
 
-    if (lv === 2 && (q.type === 'mc' || q.type === 'scenario') && q.extra && q.extra.length) {
+    // A question authored as free recall already IS the level-3 shape, so it is
+    // stamped 3 whatever level it is asked for. There is no four-option version
+    // of it to serve: asked for level 1 it used to come back as the very same
+    // blank typing box, badged Lv 1 and paid 10 XP. That is the level-3 widget
+    // wearing a level-1 label, and it is what the student meant by the levels
+    // being mixed up - a typing box landing between two four-option questions.
+    // Stamping 3 here is also what keeps these five out of servableAt(ch, 1)
+    // and servableAt(ch, 2), so Recognise and Discriminate rounds can no longer
+    // contain one.
+    if (q.type === 'fill') {
+      return Object.assign({}, q, { _level: 3 });
+    }
+
+    if (lv >= 3 && !canWriteIn(q)) lv = 2;
+
+    if (lv === 2 && (q.type === 'mc' || q.type === 'scenario' || q.type === 'multi') &&
+        q.extra && q.extra.length) {
       var choices = q.choices.concat(q.extra);
       return Object.assign({}, q, { choices: choices, answer: q.answer, _level: 2 });
     }
 
     if (lv === 3 && q.key) {
-      var accepted = [q.key].concat(q.accept || []);
+      var accepted = [q.key].concat(q.accept || []).concat(aliasesFor(q, q.key));
       return Object.assign({}, q, {
         type: 'fill',
         answer: accepted,
@@ -454,7 +785,7 @@
       return Object.assign({}, q, {
         type: 'fill',
         prompt: 'Which term means this?\n“' + pair[1] + '”',
-        answer: [pair[0]].concat(termVariants(pair[0])),
+        answer: [pair[0]].concat(termVariants(pair[0])).concat(aliasesFor(q, pair[0])),
         hint: 'One term from ' + q.topic + '.',
         _level: 3,
         _origType: 'match'
@@ -462,6 +793,25 @@
     }
 
     return Object.assign({}, q, { _level: 1 });
+  }
+
+  // The other names a term is known by: `aliases` on the question, keyed by the
+  // exact term, filled in by build.js from the instructor's own text and
+  // extendable by hand in the chapter file.
+  //
+  // A matching grid inverted into a write-in used to accept the pair's term and
+  // the mechanical variants of it and nothing else. ch4-46 asks for a practice
+  // model whose pair term is its acronym, so the only accepted answers were the
+  // acronym, "the" plus the acronym and the acronym with an s - and the student
+  // meets that model spelled out in full everywhere else in the chapter. She
+  // types what she was taught and is marked wrong on a question she knows.
+  // Widening an accepted set can only mark somebody right who was right, which
+  // is why this is safe to derive and why the term itself is never replaced.
+  function aliasesFor(q, term) {
+    var list = (q.aliases && q.aliases[term]) || [];
+    var out = [];
+    list.forEach(function (a) { out = out.concat([a], termVariants(a)); });
+    return out;
   }
 
   // Accept the obvious ways a student might type a term they clearly know.
@@ -780,12 +1130,27 @@
       '<button class="btn sm" data-boss ' + (bu ? '' : 'disabled') + '>' + (bu ? 'Enter the boss fight' : 'Locked') + '</button>' +
       '</div>';
 
+    // Which chapters each cross-chapter mode can reach tonight. A round is
+    // level-pure, so chapters on another rung sit it out; saying so on the card
+    // is the whole of the deal - the alternative is a card promising every
+    // chapter while the round quietly runs on two of them.
+    var everything = allQuestions();
+    var reachGhost = crossReach(everything, GHOST_SIZE);
+    var reachSO = crossReach(everything, SO_SIZE);
+    var reachCert = crossReach(everything.filter(function (q) {
+      return q.type === 'mc' || q.type === 'scenario' || q.type === 'multi';
+    }), CERT_SIZE, 2);
+    var reachLine = function (t) {
+      return t ? '<p class="faint" style="margin:0 0 10px">' + esc(t) + '</p>' : '';
+    };
+
     var gc = ghostCount();
     h += '<div class="card" style="margin-top:14px">' +
       '<h3 style="margin-bottom:4px">\uD83D\uDC7B Ghost Duel</h3>' +
       '<p class="faint" style="margin:0 0 10px">Seven questions against your own last attempt. ' +
       'Lock your answer, then see what you did last time and how long it took. ' +
       'Nobody else is involved.</p>' +
+      reachLine(reachGhost) +
       (gc
         ? '<p class="faint" style="margin:0 0 10px">You have <b>' + gc + '</b> ghost' +
           (gc === 1 ? '' : 's') + ' on record.</p>'
@@ -807,6 +1172,7 @@
             : '<p class="faint" style="margin:0 0 10px">Beat <b>' + mk.bar + '</b> an hour to take it.</p>')
         : '<p class="faint" style="margin:0 0 10px">Nobody holds it yet. Fifteen questions, ' +
           'as fast as you can get them right.</p>') +
+      reachLine(reachSO) +
       '<p class="faint" style="margin:0 0 10px">Fall short and nothing is written down and ' +
       'nobody is told. Chase it as often as you like.</p>' +
       '<button class="btn ghost" data-standing>Chase it</button>' +
@@ -818,6 +1184,7 @@
       '<p class="faint" style="margin:0 0 10px">Ten questions. Three Certains, four Fairly Sures, ' +
       'three Guesses. Being sure and wrong costs more than anything else &mdash; ' +
       'which is the point, because feeling sure is exactly what flashcards teach.</p>' +
+      reachLine(reachCert) +
       (verdict.enough
         ? '<p class="' + (verdict.over ? 'warnline' : 'goodline') + '" style="margin:0 0 10px">' +
           esc(verdict.line) + '</p>'
@@ -1003,11 +1370,38 @@
   // Adapted Equipment. The question is re-served a level easier, in place, and
   // nobody is told - the point is a private way down for a student who was
   // promoted automatically and is now drowning.
+  //
+  // This is the one place in the game where a shape gets EASIER inside a round
+  // the ramp built, and it stays. On 91 of the bank's question/level pairs the
+  // step down changes the widget - 75 typing boxes become option lists and 16
+  // become matching grids - so the round does take a backward step at the
+  // position the student paid for. Leaving it is deliberate:
+  //
+  //   - it is the only step down in the game that is BOUGHT. Nothing hands it
+  //     out. She pressed a button that says 'Serve this question one level
+  //     down' and it cost her 4 tokens, which is four questions' worth of
+  //     budget. A change she asked for by name cannot read as the game's
+  //     difficulty jumping about, which is the bug the ramp fixes;
+  //   - offersFor only offers it where adaptWouldChange(v) is true, and that
+  //     is true exactly when the widget changes. 'Stop offering it where it
+  //     would change the widget' is therefore the same sentence as 'remove the
+  //     mode', and the mode closes a real gap: promotion is automatic at 80%
+  //     and serve() steps a question down only when it physically cannot be
+  //     written in, so a student promoted into Recall had no way back;
+  //   - it replaces ONE view at the current index. It does not rebuild or
+  //     reorder S.run.views, so the order buildViews chose still stands for
+  //     every question she has not spent a token on. test/levels.mjs counts
+  //     indexed writes into a views array and fails if a second one appears.
+  //
+  // Not offered in a live round at all (offersFor gates it on !live), so none
+  // of this reaches the shared screen.
   function adaptDown(v) {
     var orig = allQuestions().filter(function (x) { return x.id === v.q.id; })[0] || v.q;
     var lv = Math.max(1, viewLevel(v) - 1);
+    // No second stamp here. serve() has already recorded the level it really
+    // handed out on nv.q._level; overwriting it with a prediction is what let
+    // the badge, the XP and the Leitner record disagree with each other.
     var nv = prep(serve(orig, lv));
-    nv._level = servedLevel(orig, lv);
     nv._adapted = true;
     nv._protected = v._protected;
     if (S.screen === 'live') {
@@ -1025,7 +1419,7 @@
   // locked, because knowing what you picked last time would just be a hint.
   function ghostStrip(v) {
     if (!v.answered) {
-      return ghosts()[v.q.id]
+      return ghosts()[ghostKey(v.q.id, viewLevel(v))]
         ? '<p class="faint center" style="margin:8px 0 0">\uD83D\uDC7B You have met this one before. ' +
           'Answer, then see what you did last time.</p>'
         : '<p class="faint center" style="margin:8px 0 0">\uD83D\uDC7B New to you. This run records ' +
@@ -1670,6 +2064,61 @@
 
   // Pick the next question: a pool item if this student can clear one, otherwise
   // their own weakest material at their own level.
+  //
+  // ---------------------------------------------------------------------
+  // THE LIVE ROUND DOES NOT RAMP, AND THAT IS THE DECISION, NOT AN OVERSIGHT.
+  //
+  // Every other round is ordered by buildViews - shape ascending, weakest
+  // first inside a shape. This one is not. It was measured before it was
+  // settled, and the numbers are written down here so the next reader does not
+  // have to reopen it.
+  //
+  // It cannot be ordered, for two reasons that are both structural.
+  //
+  // buildViews sorts a finite list. There is no list here. This function is a
+  // generator over a stream whose next item depends on what the room and the
+  // other nine phones just did, and whose LENGTH the room is still deciding -
+  // a correct answer adds seconds to the room's deadline, so Buy Time does not
+  // know how many questions it will ask until it is over. And two of the four
+  // branches below may not be reordered at all: All Hands is one qid the room
+  // chose and time-boxed, and the open pool is the room's clearing queue,
+  // oldest miss first. Reorder either and the pool stops clearing, which is
+  // the whole of Buy Time and the Walk-Through.
+  //
+  // A ramp was built and driven through the module.exports seam before this
+  // was written: a ratchet on the own-material branch, never serving a shape
+  // easier than the last, over all 243 level spreads and all four live games,
+  // 20 questions a round, 972 rounds.
+  //
+  //   as it stands      76.2% of rounds whipsaw, 4.95 backward shape steps,
+  //                     3.33 distinct widgets a round, 0 repeated questions
+  //   ratchet, quiet    0 backward steps - but 2.25 widgets a round and 1166
+  //   room              repeated questions, because the ratchet runs out of
+  //                     material at the top of the ramp and hands the student
+  //                     back one she has just answered
+  //   ratchet, room     99.7% still whipsaw, 4.36 backward steps
+  //   feeding the pool
+  //
+  // So the ramp exists only in a room that is not playing. With the room
+  // feeding the pool, two questions in three come from it, and the pool is the
+  // branch that may not be touched - the guarantee would be one this function
+  // could not keep.
+  //
+  // What IS true, and what test/levels.mjs pins instead: every question is
+  // served at its own chapter's rung, and the own-material branch draws only
+  // from what that chapter's practice can serve, so it never shows a widget
+  // the student has not already met in practice at that level - 0 of 5945
+  // measured. A pool item is the stated exception, 898 of 3775, because
+  // refusing one is the single thing that branch may never do.
+  //
+  // Nor is the harm the ramp fixes available here. A practice round is
+  // private, finite, self-paced and titled with one level, and a student who
+  // backs out on her phone skips its tail every time - that tail is what
+  // buildViews' box sort exists for. A live round ends on the instructor's
+  // clock, at the same instant for all ten students, whatever position anyone
+  // has reached: there is no tail to skip, and every card carries its own
+  // 'Lv N' badge rather than one level printed over a mixed round.
+  // ---------------------------------------------------------------------
   function nextLiveQuestion() {
     var pool = liveState(LIVE.room).pool || [];
     var all = allQuestions();
@@ -1687,7 +2136,14 @@
       if (pq) return { q: pq, fromPool: true, allHands: false };
     }
 
-    var mine = shuffle(all).sort(function (a, b) {
+    // The only live branch this phone actually chooses, so the only one that
+    // may be filtered. The two above hand back a qid the ROOM picked out of
+    // another student's miss: refusing those would silently drop All Hands
+    // questions and stop the pool ever clearing, which is the whole of Buy Time
+    // and the Walk-Through. Up there purity means stamping the level honestly,
+    // never refusing the question.
+    var own = all.filter(function (q) { return effectiveLevel(q, levelOf(q.chapter)) === levelOf(q.chapter); });
+    var mine = shuffle(own.length ? own : all).sort(function (a, b) {
       var ra = S.progress[recKey(a.id, levelOf(a.chapter))];
       var rb = S.progress[recKey(b.id, levelOf(b.chapter))];
       return ((ra && ra.box) || 0) - ((rb && rb.box) || 0);
@@ -1702,6 +2158,10 @@
     var best = null, oldest = Infinity;
     allQuestions().forEach(function (q) {
       var lv = levelOf(q.chapter);
+      // A box at a level this question cannot be served at is not mastery, it
+      // is a leftover from the live round that used to stamp the wrong level.
+      // Defending one paid double on a box the student never earned.
+      if (effectiveLevel(q, lv) !== lv) return;
       var r = S.progress[recKey(q.id, lv)];
       if (!r || r.box < MASTERY_BOX) return;
       if ((r.last || 0) < oldest) { oldest = r.last || 0; best = q; }
@@ -1729,14 +2189,18 @@
     LIVE.view = prep(serve(pick.q, lv));
     LIVE.view._fromPool = pick.fromPool;
     LIVE.view._askedAt = Date.now();
-    LIVE.view._level = servedLevel(pick.q, lv);
+    // No _level stamp here. serve() above already recorded the level it really
+    // served on the question; the prediction that used to sit here claimed 2 or
+    // 3 for items handed out at level 1, and everything downstream believed it:
+    // 25 XP instead of 10, the record filed under qid@3, 'Lv 3' printed over a
+    // four-option question, and the Worker paying the room 12 seconds for a 5.
     LIVE.view._defend = defend;
     // Stamped at serve time on purpose. applyResult moves the Leitner box
     // the instant an answer lands, so computing this afterwards would charge
     // the student an expectation based on knowledge they proved in that very
     // answer - inflating it on a hit, deflating it on a miss, and quietly
     // shrinking every margin toward zero.
-    LIVE.view._expected = expectationFor(LIVE.view.q, LIVE.view._level || 1);
+    LIVE.view._expected = expectationFor(LIVE.view.q, viewLevel(LIVE.view));
   }
 
   function liveAnswer() {
@@ -1748,7 +2212,10 @@
 
     var elapsed = (Date.now() - v._askedAt) / 1000;
     var bucket = elapsed < 10 ? 0 : elapsed < 20 ? 1 : 2;
-    var lv = v._level || 1;
+    // The level the student was SHOWN, which is now also the level they are
+    // paid at, the level the record is filed under and the level the Worker is
+    // told. The three used to be allowed to differ here and nowhere else.
+    var lv = viewLevel(v);
 
     applyResult(v.q.id, v.correct, true, lv, v._protected);
     save();
@@ -1797,7 +2264,7 @@
     if (!v) return { expected: 50, defend: false };
     return {
       // the number stamped when this question was served, never recomputed
-      expected: typeof v._expected === 'number' ? v._expected : expectationFor(v.q, v._level || 1),
+      expected: typeof v._expected === 'number' ? v._expected : expectationFor(v.q, viewLevel(v)),
       defend: !!v._defend
     };
   }
@@ -1985,7 +2452,7 @@
 
     h += '<div class="card pad-lg">' +
       '<span class="tag' + (v._fromPool ? ' star' : '') + '">' +
-      (v._fromPool ? '&#128293; From the pool &middot; double time' : 'Lv ' + (v._level || 1) + ' &middot; ' + esc(v.q.topic)) +
+      (v._fromPool ? '&#128293; From the pool &middot; double time' : 'Lv ' + viewLevel(v) + ' &middot; ' + esc(v.q.topic)) +
       '</span>' +
       '<div class="qprompt">' + esc(v.q.prompt) + '</div>' +
       renderBody(v) + '</div>';
@@ -2012,12 +2479,22 @@
     var ch = chapterById(chapterId);
     if (!ch) return;
     var lv = levelOf(chapterId);
-    var pool = ch.questions.map(function (q) { return Object.assign({ chapter: ch.id }, q); });
+    var pool = servableAt(ch, lv);
+    // A saved level with nothing servable would build an empty run, and viewPlay
+    // reads views[idx].q straight away. checkPromotion will not create that state
+    // any more, but a device promoted before the guard existed still carries it,
+    // and there its mastery bar reads 0/0 forever with no way back. Walk down to
+    // a level the chapter can fill and keep it, so the map agrees with the round.
+    while (!pool.length && lv > 1) { lv--; pool = servableAt(ch, lv); }
+    if (!pool.length) return;
+    if (lv !== levelOf(chapterId)) { S.levels[chapterId] = lv; save(); }
+    // Clamp to the pure pool, not the chapter: a short round at one level beats
+    // a full one padded back out with easier questions.
     var picked = buildSession(pool, Math.min(SESSION_SIZE, pool.length), lv);
     S.run = {
       mode: 'practice', chapterId: chapterId, level: lv,
       title: 'Ch ' + ch.number + ' · L' + lv,
-      views: picked.map(function (q) { return prep(serve(q, lv)); }),
+      views: buildViews(picked, lv),
       idx: 0, streak: 0, xpStart: S.stats.xp,
       deadline: null, hideFeedback: false, passMark: 0
     };
@@ -2076,22 +2553,51 @@
     return S.stats.ghosts;
   }
 
+  // A ghost belongs to a QUESTION AT A LEVEL, not to a question. ch3-06 at
+  // Recognise is four options and a click; at Recall it is a blank box and the
+  // term typed out. Racing one against the other put 'you chose "Guided
+  // Imagery"' above a widget with no options and set the bar at a time that
+  // cannot be reached by typing. Same key shape as recKey on purpose: level 1
+  // keeps the bare id, so every ghost already on a phone stays raceable where
+  // it was almost certainly recorded - the ladder starts at Recognise - and
+  // the higher rungs start empty and fill honestly.
+  function ghostKey(qid, level) { return recKey(qid, level || 1); }
+
   function ghostCount() { return Object.keys(ghosts()).length; }
 
   function startGhostDuel() {
     var g = ghosts();
-    var all = allQuestions();
-    // Questions that already have a ghost come first - those are the ones with
-    // somebody to race. The rest of the set records a ghost for next time.
-    var haunted = shuffle(all.filter(function (q) { return g[q.id]; }));
-    var fresh = shuffle(all.filter(function (q) { return !g[q.id]; }));
+    // One level for the whole duel. Serving each question at its own chapter's
+    // level drew seven questions across five chapters sitting at three
+    // different levels, and a race against your own last attempt is not a race
+    // if the shape of the question changed underneath it. The level alone is
+    // not enough for that, which is why ghostKey above carries one too: an
+    // internally uniform round can still be raced against a ghost recorded on
+    // a rung the student has since climbed off.
+    var cp = crossPool(allQuestions(), GHOST_SIZE);
+    var all = cp.pool;
+    // Questions that already have a ghost AT TONIGHT'S LEVEL come first -
+    // those are the ones with somebody to race. The rest record a ghost for
+    // next time.
+    var haunted = shuffle(all.filter(function (q) { return g[ghostKey(q.id, cp.level)]; }));
+    var fresh = shuffle(all.filter(function (q) { return !g[ghostKey(q.id, cp.level)]; }));
     var picked = haunted.concat(fresh).slice(0, Math.min(GHOST_SIZE, all.length));
     if (!picked.length) return;
 
     S.run = {
       mode: 'ghost',
       title: 'Ghost Duel',
-      views: shuffle(picked).map(function (q) { return prep(serve(q, levelOf(q.chapter))); }),
+      // Read by test/levels.mjs, not by this file. Nothing in src/app.js looks
+      // at r.level outside the practice branch of the finish screen, so a grep
+      // of this file alone reads it as dead and deletes it - and the check it
+      // feeds is the one that proves crossPool picked the level the MOST
+      // chapters sit at, which is the whole of the majority rule. Same for the
+      // Standing Order and Three Certainties below.
+      level: cp.level,
+      // Haunted-before-fresh above is SELECTION - which seven questions have a
+      // ghost to race. buildViews reorders them, which the ghost does not mind:
+      // a ghost is stored per question, not per position.
+      views: buildViews(picked, cp.level),
       idx: 0, streak: 0, xpStart: S.stats.xp,
       deadline: null, hideFeedback: false, passMark: 0,
       beat: 0, raced: 0, blind: []
@@ -2123,20 +2629,26 @@
       text = (v.opts[v.picked] || {}).t || null;
       if (text && text.length > 70) text = text.slice(0, 67) + '\u2026';
     }
-    ghosts()[v.q.id] = {
+    ghosts()[ghostKey(v.q.id, viewLevel(v))] = {
       correct: !!v.correct, ms: ms, pickedText: text, at: new Date().toISOString()
     };
   }
 
   function startStandingOrder() {
-    var pool = allQuestions();
+    // One level for the whole sprint. The mark is correct answers per hour, and
+    // fifteen questions that silently alternate between four options, six
+    // options and a blank box do not measure the same rate twice - a write-in
+    // takes far longer to type, so a mixed run scored whoever drew easier cards.
+    var cp = crossPool(allQuestions(), SO_SIZE);
+    var pool = cp.pool;
     if (pool.length < SO_SIZE) return;
     var picked = shuffle(pool).slice(0, SO_SIZE);
     SO.result = null;
     S.run = {
       mode: 'standing',
       title: 'The Standing Order',
-      views: picked.map(function (q) { return prep(serve(q, levelOf(q.chapter))); }),
+      level: cp.level,
+      views: buildViews(picked, cp.level),
       idx: 0, streak: 0, xpStart: S.stats.xp,
       deadline: null, hideFeedback: true, passMark: 0,
       startedAt: Date.now()
@@ -2146,20 +2658,28 @@
   }
 
   function startCertainties() {
-    var pool = allQuestions().filter(function (q) { return q.type === 'mc' || q.type === 'scenario' || q.type === 'multi'; });
+    var all = allQuestions().filter(function (q) { return q.type === 'mc' || q.type === 'scenario' || q.type === 'multi'; });
+    // Capped at level 2, not because recall is too hard but because certStrip
+    // will not show the bet bar until an option is picked - a write-in has no
+    // v.picked and no v.sel, so a level-3 question would leave the student
+    // unable to bet at all, on a round whose whole point is the bet. Capping is
+    // also what makes the measurement mean anything: three Certains in ten is a
+    // different budget if some of them are blank boxes and some are four options.
+    var cp = crossPool(all, CERT_SIZE, 2);
+    var pool = cp.pool;
     if (pool.length < CERT_SIZE) return;
-    // Weakest material first, at the level this student is actually working at,
-    // so the bet is placed on something that matters.
+    // Weakest material first, at the level this round is actually being served
+    // at, so the bet is placed on something that matters. This is SELECTION -
+    // which ten questions are in the round; buildViews decides the order.
     var picked = shuffle(pool).sort(function (a, b) {
-      var ra = S.progress[recKey(a.id, levelOf(a.chapter))];
-      var rb = S.progress[recKey(b.id, levelOf(b.chapter))];
-      return ((ra && ra.box) || 0) - ((rb && rb.box) || 0);
+      return boxOf(a, cp.level) - boxOf(b, cp.level);
     }).slice(0, CERT_SIZE);
 
     S.run = {
       mode: 'certainty',
       title: 'Three Certainties',
-      views: picked.map(function (q) { return prep(serve(q, levelOf(q.chapter))); }),
+      level: cp.level,
+      views: buildViews(picked, cp.level),
       idx: 0, streak: 0, xpStart: S.stats.xp,
       deadline: null, hideFeedback: false, passMark: 0,
       budget: Object.assign({}, CERT_BUDGET),
@@ -2175,14 +2695,33 @@
     return CERT_ORDER.reduce(function (n, k) { return n + (CERT_BUDGET[k] - S.run.budget[k]); }, 0);
   }
 
+  // An exam and the Final Boss serve each question at ITS OWN CHAPTER'S level,
+  // and no purity filter runs here. That is the difference between this and
+  // every other round: a cross-chapter round picks one level and drops the
+  // chapters that are not on it, but an exam is graded coverage of the syllabus
+  // and may not drop a question for being on the wrong rung - the Final Boss is
+  // 25 questions from all five chapters and the Final Exam is 60, and filtering
+  // would quietly shrink both.
+  //
+  // It goes through serve() like everything else because it used to not. Hand
+  // prep() the authored question and v.q._level is undefined, so answerCurrent
+  // files the result under level 1: a student who cleared a Recall chapter in
+  // the boss banked a level-1 record that chapterMastery at level 3 does not
+  // read and was paid 10 XP for work worth 25. The five questions authored as
+  // free recall were the worst of it - serve() stamps those 3 at every level,
+  // so they are not in servableAt(ch, 1) at all and the record landed on a rung
+  // nothing reads. serve() degrades on its own where a level has no form for a
+  // question (level 3 without a write-in comes back as level 2, level 2 without
+  // extras as level 1), so serving at the chapter's level never loses one.
   function startTimed(opts) {
     var pool = gradedPool(opts.chapters, opts.topics);
     if (!pool.length) return;
     var picked = shuffle(pool).slice(0, Math.min(opts.count, pool.length));
+    var examLevel = function (q) { return levelOf(q.chapter); };
     S.run = {
       mode: opts.mode, examId: opts.examId,
       title: opts.title,
-      views: picked.map(prep), idx: 0, streak: 0, xpStart: S.stats.xp,
+      views: buildViews(picked, examLevel), idx: 0, streak: 0, xpStart: S.stats.xp,
       deadline: opts.minutes ? Date.now() + opts.minutes * 60000 : null,
       hideFeedback: true, passMark: opts.passMark || 0
     };
@@ -2313,7 +2852,7 @@
 
     if (r.mode === 'ghost') {
       var ms = v._askedAt ? Date.now() - v._askedAt : 0;
-      var was = ghosts()[v.q.id];
+      var was = ghosts()[ghostKey(v.q.id, viewLevel(v))];
       v._ghost = was || null;
       if (was) {
         r.raced++;
@@ -2655,6 +3194,41 @@
     var i = 'abcdefgh'.indexOf(String(e.key).toLowerCase());
     if (i >= 0 && i < v.opts.length) { v.picked = i; answerCurrent(); }
   });
+
+  // The only seam in this file. There is no `module` in a browser, so this is
+  // dead code on a phone; it exists because the level math had no way to be
+  // tested at all, and shipping it untested is how a chapter came to sit at a
+  // level it could never be promoted out of. test/levels.mjs is the only caller.
+  if (typeof module !== 'undefined' && module.exports) {
+    module.exports = {
+      S: S, CHAPTERS: CHAPTERS, MAX_LEVEL: MAX_LEVEL, UNLOCK_AT: UNLOCK_AT,
+      SESSION_SIZE: SESSION_SIZE, LEVEL_FLOOR: LEVEL_FLOOR,
+      serve: serve, effectiveLevel: effectiveLevel, servableAt: servableAt,
+      // The real grader, so the suite can ask what a typed answer is actually
+      // worth instead of comparing strings against q.answer itself. norm() and
+      // the single-typo rule live inside it, and a copy of them in the test
+      // would drift the way servedLevel drifted from serve().
+      grade: grade,
+      buildSession: buildSession, chapterMastery: chapterMastery,
+      checkPromotion: checkPromotion, overall: overall, crossPool: crossPool,
+      // The sentence on a cross-chapter mode's own card. Exported because the
+      // disclosure IS the deal struck in GAMES.md rule 8 - a round that draws
+      // from a chapter standing above it, or leaves a chapter out, and does not
+      // say so is the one failure that rule exists to prevent.
+      crossReach: crossReach,
+      allQuestions: allQuestions, levelOf: levelOf, recKey: recKey,
+      viewLevel: viewLevel, offersFor: offersFor, startPractice: startPractice,
+      startGhostDuel: startGhostDuel, startStandingOrder: startStandingOrder,
+      startCertainties: startCertainties, startTimed: startTimed, EXAMS: EXAMS,
+      GHOST_SIZE: GHOST_SIZE, SO_SIZE: SO_SIZE, CERT_SIZE: CERT_SIZE,
+      // The live round is the one place where the level SHOWN, the level the
+      // record is filed under and the level the XP is paid at were ever allowed
+      // to differ, so the test drives the real thing rather than a stand-in.
+      LEVELS: LEVELS, LIVE: LIVE, serveNextLive: serveNextLive,
+      liveAnswer: liveAnswer, viewLive: viewLive,
+      applyResult: applyResult, answerCurrent: answerCurrent
+    };
+  }
 
   // ---------------------------------------------------------------- boot
 

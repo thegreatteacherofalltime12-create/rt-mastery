@@ -8,7 +8,7 @@
     "dev": "node build.js && node dev-server.js",
     "preview": "npm run build && wrangler dev",
     "deploy": "npm test && npm run build && wrangler deploy",
-    "test": "node test/round.mjs --check && node test/seam.mjs && node test/closet.mjs && node test/fieldday.mjs && node test/standing.mjs && node test/forecast.mjs && node test/walkthrough.mjs",
+    "test": "node test/round.mjs --check && node test/seam.mjs && node test/closet.mjs && node test/fieldday.mjs && node test/standing.mjs && node test/forecast.mjs && node test/walkthrough.mjs && node test/levels.mjs",
     "test:save": "node test/round.mjs --save"
   },
   "devDependencies": {

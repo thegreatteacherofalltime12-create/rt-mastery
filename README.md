@@ -7,8 +7,8 @@ without *knowing* it, and there is no consequence for guessing. RT Mastery repla
 retrieval: every question must be answered correctly three separate times before it locks in, and
 missing one knocks it back down so it returns almost immediately.
 
-In deployment it carries **229 questions** across five chapters, authored from the course material —
-142 of them flagged as likely exam questions.
+In deployment it carries **236 questions** across five chapters, authored from the course material —
+149 of them flagged as likely exam questions.
 
 > **On content:** the course question banks are the instructor's material and are kept private. This
 > repository contains the engine, the infrastructure, and a sample chapter (`content/ch-example.json`)

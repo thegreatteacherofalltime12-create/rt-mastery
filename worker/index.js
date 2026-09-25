@@ -131,6 +131,26 @@ function docToObject(doc) {
   return out;
 }
 
+// Topic names the bank has been renamed away from, mapped to what it calls
+// them now. A student's stored weakTopics keeps whatever string her phone last
+// wrote, so the two spellings coexist until every student has played again -
+// and an entry here is what stops the dashboard counting them as two topics.
+// One line per rename, and nothing is ever removed: a student who has not
+// opened the game since the rename still has the old string in Firestore.
+const TOPIC_RENAMES = {
+  'CBT': 'Cognitive Behavioral Therapy',
+  // The target must be the string the bank CURRENTLY uses, not the one the rename
+  // passed through. This mapped to 'Implications for Therapeutic Recreation', which
+  // the bank no longer contains - so the fold invented a third spelling and split
+  // the class-weak roll-up it exists to join.
+  'Implications for TR': 'Implications for Practice',
+  'Implications for Therapeutic Recreation': 'Implications for Practice'
+};
+
+function canonTopic(t) {
+  return Object.prototype.hasOwnProperty.call(TOPIC_RENAMES, t) ? TOPIC_RENAMES[t] : t;
+}
+
 // ---- identity ------------------------------------------------------------
 
 function slug(s) {
@@ -248,13 +268,30 @@ async function handleClass(url, env) {
   }
   const data = await res.json();
   const students = (data.documents || []).map(docToObject)
+    .map((s) => (Array.isArray(s.weakTopics)
+      // The same fold on the per-student column, so one topic is not named two
+      // ways on one screen while half the class has yet to resync.
+      ? { ...s, weakTopics: s.weakTopics.map((t) => {
+          const m = String(t).match(/^(.*?)(\s*\(\d+%\))?$/);
+          return canonTopic(m[1]) + (m[2] || '');
+        }) }
+      : s))
     .sort((a, b) => (b.mastered || 0) - (a.mastered || 0));
 
   // roll up the topics the class as a whole is weakest on
+  //
+  // weakTopics is a plain string, written by the phone from the topic field at
+  // the moment the round finished, and it sits in Firestore until that student
+  // plays again. Rename a topic in the bank and the class splits in two: three
+  // students still carrying "CBT" and three carrying the new name tally as two
+  // topics of three, and with ten students the red threshold is four - so the
+  // topic the whole class is failing turns into two grey chips and drops off
+  // the re-teach list entirely. Folding the old spelling into the new one here
+  // costs one lookup and needs no student to do anything.
   const tally = {};
   for (const s of students) {
     for (const t of s.weakTopics || []) {
-      const topic = String(t).replace(/\s*\(\d+%\)$/, '');
+      const topic = canonTopic(String(t).replace(/\s*\(\d+%\)$/, ''));
       tally[topic] = (tally[topic] || 0) + 1;
     }
   }

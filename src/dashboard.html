@@ -88,8 +88,16 @@
       return;
     }
 
-    var totalQ = s[0].totalQuestions || 0;
-    var avg = Math.round(s.reduce(function (n, x) { return n + (x.mastered || 0); }, 0) / s.length);
+    // Every student is divided by their OWN denominator. This used to divide
+    // the class's mean mastered count by s[0].totalQuestions - and the roster
+    // arrives sorted by mastered, so the denominator was whoever happened to be
+    // top. A student's totalQuestions is written by the build SHE last opened,
+    // and Firestore docs persist, so a class is a mix of old and new totals
+    // until all ten reopen the app; the tile moved 8 points when one student
+    // answered one question and changed who was first.
+    var sumMastered = s.reduce(function (n, x) { return n + (x.mastered || 0); }, 0);
+    var sumTotal = s.reduce(function (n, x) { return n + (x.totalQuestions || 0); }, 0);
+    var classPct = sumTotal ? Math.round(100 * sumMastered / sumTotal) : 0;
     var active = s.filter(function (x) {
       return x.updatedAt && (Date.now() - new Date(x.updatedAt)) < 7 * 86400000;
     }).length;
@@ -97,7 +105,7 @@
     var h = '<div class="statgrid">' +
       '<div class="stat"><div class="n">' + s.length + '</div><div class="l">Students</div></div>' +
       '<div class="stat"><div class="n">' + active + '</div><div class="l">Active this week</div></div>' +
-      '<div class="stat"><div class="n">' + (totalQ ? Math.round(100 * avg / totalQ) : 0) + '%</div><div class="l">Class average</div></div>' +
+      '<div class="stat"><div class="n">' + classPct + '%</div><div class="l">Class average</div></div>' +
       '</div>';
 
     if ((d.classWeak || []).length) {

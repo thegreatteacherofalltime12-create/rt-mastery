@@ -6,6 +6,13 @@
       "runtimeExecutable": "node",
       "runtimeArgs": ["dev-server.js"],
       "port": 5173
+    },
+    {
+      "name": "rt-live",
+      "runtimeExecutable": "node",
+      "runtimeArgs": ["test/live-server.mjs"],
+      "port": 5174,
+      "autoPort": true
     }
   ]
 }

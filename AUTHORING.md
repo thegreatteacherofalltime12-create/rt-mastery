@@ -129,6 +129,39 @@ Identical to `mc`, but framed as a situation. Use it for "what would you do" que
 
 Each pair is `[term, definition]`. Terms and definitions are both shuffled.
 
+At level 3 (Recall) a matching question is flipped into a typing question: the game shows one
+definition and asks the student to type the term. Only the term is accepted, plus the obvious
+variants of it ("the ...", singular/plural). **If a term has a second name your students would
+reasonably type, add it to `aliases`:**
+
+```json
+{
+  "type": "match",
+  "pairs": [
+    ["OLH-TR", "Minimize effects of illness and disability across the lifespan"]
+  ],
+  "aliases": {
+    "OLH-TR": ["Optimizing Lifelong Health through Therapeutic Recreation"]
+  }
+}
+```
+
+Key it by the exact term as it appears in `pairs` (the build fails if it does not match one).
+`aliases` only ever **adds** accepted spellings — it never replaces the term, so nothing a student
+could type before stops working. `key` questions take `aliases` the same way.
+
+You often do not have to write this yourself. When a chapter spells an abbreviation out in its own
+text — "Optimizing Lifelong Health through Therapeutic Recreation model (OLH-TR)" — the build
+reads the expansion out of your wording and accepts it automatically. `npm run build` prints how
+many it found. Add an entry by hand for anything it misses.
+
+**That automatic one is derived from your prose, so editing the prose can take it away.** Drop the
+parenthetical, or write it differently, and the spelling quietly stops being accepted — the build
+still succeeds and the student who types the full name is marked wrong. `npm test` catches it: if a
+question still asks a student to type an abbreviation and the bank no longer spells any of them out,
+the check *"a bank that asks for an acronym still spells at least one of them out"* fails and names
+the questions. The fix is to add the `aliases` entry by hand, as above.
+
 ### Ordering — `order`
 
 ```json

@@ -60,6 +60,76 @@ The flashcard app this replaced failed because recognising an answer feels like
 knowing it. Anything that lets a student coast on recognition is a regression,
 however fun it is.
 
+**7. A round never gets easier as it goes, and no format orders its own.**
+
+The user's words were "3 questions in a row that were all 3 level types". The
+cause was a flat shuffle: a four-option question, then a matching grid, then a
+select-all reads as the difficulty jumping about, whatever the badge says. A
+round now walks up through the shapes — four-option, select-all, grid, ordering
+list, write-in — and within one shape the student's weakest question comes
+first.
+
+This is not a per-format decision. `buildViews` in `src/app.js` is the only
+thing allowed to build a run's `views` array, and `test/levels.mjs` reads the
+source and fails the build if anything else does, so a new format cannot start
+a round without the ordering rule. Pick the questions however the format wants;
+hand them to `buildViews` and it decides the order.
+
+*What this costs, stated once.* Shape is the first key, so where a chapter has
+exactly one question of a shape there is nothing left to sort and it lands in
+the same position in every round it is drawn into. In the present bank that is
+exactly one question: Ch 7's single ordering list at Recognise. Measured over
+2000 rounds it is drawn into 283 of them and sits last in all 283. Every other
+shape group has two or more members and moves across two to twelve positions.
+A student who backs out of Ch 7 rounds before the end therefore always skips
+that one item; it cannot cost her the chapter, since 80% of Ch 7's 51 Recognise
+questions is 41 and 50 are reachable without it. The only way to give it an
+early position is to let a round get easier as it goes, which is the rule
+itself.
+
+Two other consequences worth knowing. The shape ramp does nothing at Recall:
+every question a chapter can serve at level 3 is a write-in, so the round is one
+shape group and the order is purely weakest-first. And the ramp is a property of
+the round as it was BUILT — Adapted Equipment re-serves a single question a
+level down in place, which the student bought on purpose (see `adaptDown`).
+
+*The live round is the one exception, deliberately.* A room-paced round is not a
+study session: the next question depends on what the other nine phones just did,
+two of its four sources are questions the ROOM chose and may never be refused or
+reordered, and its length is not known when it starts — in Buy Time a correct
+answer adds seconds to the shared clock. There is no list to sort. A ratchet was
+built and measured against the alternative over all 243 level spreads and all
+four live formats: it removes every backward step in a room that is not playing,
+at the cost of a third of the round's shape variety and 1166 repeated questions
+in 972 rounds, and it evaporates the moment the room starts feeding the pool
+(99.7% of rounds still whipsaw). What the live round guarantees instead is that
+it never shows a widget the student has not already met in that chapter's own
+practice, except on a question the room itself put in the pool. The full
+reasoning is at `nextLiveQuestion` in `src/app.js`; `test/levels.mjs` pins the
+branch order, the pool's FIFO and the fact that a pool question is never
+filtered, so a ramp cannot be added here without turning those red.
+
+**8. A cross-chapter round says which chapters it reached, and on which rung its
+answers land.**
+
+Ghost Duel, The Standing Order and Three Certainties serve one level, and
+chapters sit on different rungs, so a round drawn from every chapter would
+either mix shapes or file its records on a rung the chapter card does not read.
+It runs at the level the most chapters can fill the round from and draws only
+from those chapters — and it **says so on its own card**. A format that quietly
+narrows its pool is telling the student something untrue about what she just
+played.
+
+That buys the chapter's own rung for the two uncapped modes and not for the
+third. Three Certainties stops at level 2 — `certStrip` has no bet bar for a
+write-in, so a level-3 round would leave the student unable to bet at all on the
+one round that is only about betting. A chapter standing at Recall is therefore
+drawn into a Discriminate round, and its answers are filed under `qid@2`, a key
+`chapterMastery(ch, 3)` does not read. The work is real and counts on the
+overall bar; that chapter's card does not move. This is the cap, not a defect,
+and it is not silent: `crossReach` names the chapters that have climbed past the
+round on the mode's own card, by the same rule as the sentence above.
+
 ---
 
 ## Shipped
@@ -120,7 +190,7 @@ Six tokens, not eighteen — this is one semester, not thousands of rounds:
 entire effect is to credit someone else.** The only publicly visible token in
 the game is an act of help.
 
-This design found a real gap in what is already shipped: `servedLevel()` only
+This design found a real gap in what is already shipped: `serve()` only
 steps a question down when it physically cannot be written in, so a student
 auto-promoted to Level 3 has **no way back down** if they are drowning. Adapted
 Equipment gives them one, privately, with nobody told.
@@ -345,5 +415,5 @@ The room owns identity and lifecycle — code, class, which format, what stage,
 who is present, when it was made. Format state belongs to the format.
 
 What every format genuinely shares, and should therefore never fork: question
-presentation and grading (`prep`, `serve`, `grade`, `renderBody`), the level
-ladder, Leitner scheduling, and XP.
+presentation and grading (`prep`, `serve`, `grade`, `renderBody`), **round
+ordering (`buildViews`)**, the level ladder, Leitner scheduling, and XP.
