@@ -1283,6 +1283,30 @@ const o = A.overall();
 check('overall mastery can reach 100%', o.pct === 1, o.done + '/' + o.total);
 reset();
 
+// ---------------------------------------------------------------------------
+// The live render hold.
+//
+// A poll-driven render() replaces the whole body. With ten phones answering,
+// the room document changes every few seconds, so a native <select> closed the
+// instant a student opened it and a matching question was unanswerable in a
+// live round - the same reason a write-in used to lose focus mid-word. The
+// hold is keyed on what has focus, so what must NOT hold matters as much as
+// what must: the exit arrow is a button, and if that held, a student could sit
+// on a finished round with no way to see it had ended.
+// ---------------------------------------------------------------------------
+const focusAs = (tag) => { sandbox.document.activeElement = tag ? { tagName: tag } : null; };
+
+check('nothing focused does not hold the render', A.inAControl() === false);
+['SELECT', 'INPUT', 'TEXTAREA'].forEach((tag) => {
+  focusAs(tag);
+  check('a focused ' + tag.toLowerCase() + ' holds the render', A.inAControl() === true);
+});
+['BUTTON', 'DIV', 'A', 'BODY'].forEach((tag) => {
+  focusAs(tag);
+  check('a focused ' + tag.toLowerCase() + ' does NOT hold the render', A.inAControl() === false);
+});
+focusAs(null);
+
 if (failures.length) {
   console.error('LEVEL LADDER FAILURES (' + failures.length + ' of ' + n + '):');
   failures.forEach((f) => console.error('  - ' + f));

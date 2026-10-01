@@ -1,5 +1,4 @@
 {
-  "note": "Frozen pre-seam wire shape. Every key here is read by a bundle already on a student phone. Delete this file and the LEGACY_FLAT block together, never separately.",
   "steps": [
     {
       "step": "create",
@@ -315,7 +314,7 @@
         "target": 6,
         "startMinutes": 5,
         "cleared": 2,
-        "endsAtMs": "<+376s>",
+        "endsAtMs": "<+322s>",
         "pool": [],
         "allHands": {
           "chapter": "ch4",
@@ -347,7 +346,7 @@
         "target": 6,
         "startMinutes": 5,
         "cleared": 2,
-        "endsAtMs": "<+436s>",
+        "endsAtMs": "<+382s>",
         "pool": [],
         "allHands": {
           "chapter": "ch4",
@@ -379,7 +378,7 @@
         "target": 6,
         "startMinutes": 5,
         "cleared": 3,
-        "endsAtMs": "<+441s>",
+        "endsAtMs": "<+387s>",
         "pool": [],
         "allHands": {
           "chapter": "ch4",
@@ -411,7 +410,7 @@
         "target": 6,
         "startMinutes": 5,
         "cleared": 4,
-        "endsAtMs": "<+446s>",
+        "endsAtMs": "<+392s>",
         "pool": [],
         "allHands": {
           "chapter": "ch4",
@@ -443,7 +442,7 @@
         "target": 6,
         "startMinutes": 5,
         "cleared": 5,
-        "endsAtMs": "<+451s>",
+        "endsAtMs": "<+397s>",
         "pool": [],
         "allHands": {
           "chapter": "ch4",
@@ -475,7 +474,7 @@
         "target": 6,
         "startMinutes": 5,
         "cleared": 5,
-        "endsAtMs": "<+451s>",
+        "endsAtMs": "<+397s>",
         "pool": [],
         "allHands": {
           "chapter": "ch4",
@@ -507,7 +506,7 @@
         "target": 6,
         "startMinutes": 5,
         "cleared": 5,
-        "endsAtMs": "<+451s>",
+        "endsAtMs": "<+397s>",
         "pool": [],
         "allHands": {
           "chapter": "ch4",
@@ -532,8 +531,7 @@
       }
     },
     {
-      "step": "clear:after-end",
-      "room": null
+      "step": "clear:after-end"
     }
   ]
 }

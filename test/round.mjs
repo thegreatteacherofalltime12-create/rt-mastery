@@ -150,7 +150,14 @@ assert('all hands opens a window', !!(ah.j.room.allHands || (ah.j.room.gs && ah.
 const ahClear = await call('clear:avery-allhands', 'POST', '/api/room/event',
   { classCode: CLASS, code: roomCode, name: 'Avery Diaz', type: 'clear',
     qid: 'ch4-09', topic: 'APIE Evaluation', chapter: 'ch4', level: 1, bucket: 2, fromPool: true });
-assert('all hands pays the flat bonus', ahClear.j.seconds === 60, 'got ' + ahClear.j.seconds);
+// ALL HANDS pays no bonus: this clear is a level-1, slowest-bucket pool steal,
+// so it is worth SECONDS[1][2] x POOL_MULTIPLIER = 6, exactly as it would be
+// outside the window. The flat 60 it used to pay was worth more than the rest
+// of a round put together.
+assert('all hands pays no bonus', ahClear.j.seconds === 6, 'got ' + ahClear.j.seconds);
+assert('all hands still scores the clear', ahClear.j.ok !== false);
+assert('all hands closes once answered',
+       !!(ahClear.j.room.allHands || ahClear.j.room.gs.allHands).solved);
 
 // 8. +60 while the clock is live must ADD, never overwrite
 const before = ahClear.j.room.endsAtMs || (ahClear.j.room.gs && ahClear.j.room.gs.endsAtMs);

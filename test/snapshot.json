@@ -902,7 +902,7 @@
           },
           "cleared": 2,
           "code": "<CODE>",
-          "endsAtMs": "<+376s>",
+          "endsAtMs": "<+322s>",
           "game": "buytime",
           "gs": {
             "allHands": {
@@ -913,7 +913,7 @@
               "topic": "APIE Evaluation"
             },
             "cleared": 2,
-            "endsAtMs": "<+376s>",
+            "endsAtMs": "<+322s>",
             "perStudentCap": 4,
             "pool": [],
             "scores": {
@@ -943,7 +943,7 @@
           "state": "running",
           "target": 6
         },
-        "seconds": 60
+        "seconds": 6
       },
       "doc": {
         "cfg": {
@@ -963,7 +963,7 @@
             "topic": "APIE Evaluation"
           },
           "cleared": 2,
-          "endsAtMs": "<+376s>",
+          "endsAtMs": "<+322s>",
           "pool": []
         },
         "players": {
@@ -995,7 +995,7 @@
           },
           "cleared": 2,
           "code": "<CODE>",
-          "endsAtMs": "<+436s>",
+          "endsAtMs": "<+382s>",
           "game": "buytime",
           "gs": {
             "allHands": {
@@ -1006,7 +1006,7 @@
               "topic": "APIE Evaluation"
             },
             "cleared": 2,
-            "endsAtMs": "<+436s>",
+            "endsAtMs": "<+382s>",
             "perStudentCap": 4,
             "pool": [],
             "scores": {
@@ -1055,7 +1055,7 @@
             "topic": "APIE Evaluation"
           },
           "cleared": 2,
-          "endsAtMs": "<+436s>",
+          "endsAtMs": "<+382s>",
           "pool": []
         },
         "players": {
@@ -1092,7 +1092,7 @@
           },
           "cleared": 3,
           "code": "<CODE>",
-          "endsAtMs": "<+441s>",
+          "endsAtMs": "<+387s>",
           "game": "buytime",
           "gs": {
             "allHands": {
@@ -1103,7 +1103,7 @@
               "topic": "APIE Evaluation"
             },
             "cleared": 3,
-            "endsAtMs": "<+441s>",
+            "endsAtMs": "<+387s>",
             "perStudentCap": 4,
             "pool": [],
             "scores": {
@@ -1153,7 +1153,7 @@
             "topic": "APIE Evaluation"
           },
           "cleared": 3,
-          "endsAtMs": "<+441s>",
+          "endsAtMs": "<+387s>",
           "pool": []
         },
         "players": {
@@ -1190,7 +1190,7 @@
           },
           "cleared": 4,
           "code": "<CODE>",
-          "endsAtMs": "<+446s>",
+          "endsAtMs": "<+392s>",
           "game": "buytime",
           "gs": {
             "allHands": {
@@ -1201,7 +1201,7 @@
               "topic": "APIE Evaluation"
             },
             "cleared": 4,
-            "endsAtMs": "<+446s>",
+            "endsAtMs": "<+392s>",
             "perStudentCap": 4,
             "pool": [],
             "scores": {
@@ -1251,7 +1251,7 @@
             "topic": "APIE Evaluation"
           },
           "cleared": 4,
-          "endsAtMs": "<+446s>",
+          "endsAtMs": "<+392s>",
           "pool": []
         },
         "players": {
@@ -1288,7 +1288,7 @@
           },
           "cleared": 5,
           "code": "<CODE>",
-          "endsAtMs": "<+451s>",
+          "endsAtMs": "<+397s>",
           "game": "buytime",
           "gs": {
             "allHands": {
@@ -1299,7 +1299,7 @@
               "topic": "APIE Evaluation"
             },
             "cleared": 5,
-            "endsAtMs": "<+451s>",
+            "endsAtMs": "<+397s>",
             "perStudentCap": 4,
             "pool": [],
             "scores": {
@@ -1349,7 +1349,7 @@
             "topic": "APIE Evaluation"
           },
           "cleared": 5,
-          "endsAtMs": "<+451s>",
+          "endsAtMs": "<+397s>",
           "pool": []
         },
         "players": {
@@ -1386,7 +1386,7 @@
           },
           "cleared": 5,
           "code": "<CODE>",
-          "endsAtMs": "<+451s>",
+          "endsAtMs": "<+397s>",
           "game": "buytime",
           "gs": {
             "allHands": {
@@ -1397,7 +1397,7 @@
               "topic": "APIE Evaluation"
             },
             "cleared": 5,
-            "endsAtMs": "<+451s>",
+            "endsAtMs": "<+397s>",
             "perStudentCap": 4,
             "pool": [],
             "scores": {
@@ -1447,7 +1447,7 @@
             "topic": "APIE Evaluation"
           },
           "cleared": 5,
-          "endsAtMs": "<+451s>",
+          "endsAtMs": "<+397s>",
           "pool": []
         },
         "players": {
@@ -1479,7 +1479,7 @@
           },
           "cleared": 5,
           "code": "<CODE>",
-          "endsAtMs": "<+451s>",
+          "endsAtMs": "<+397s>",
           "game": "buytime",
           "gs": {
             "allHands": {
@@ -1490,7 +1490,7 @@
               "topic": "APIE Evaluation"
             },
             "cleared": 5,
-            "endsAtMs": "<+451s>",
+            "endsAtMs": "<+397s>",
             "perStudentCap": 4,
             "pool": [],
             "scores": {
@@ -1539,7 +1539,7 @@
             "topic": "APIE Evaluation"
           },
           "cleared": 5,
-          "endsAtMs": "<+451s>",
+          "endsAtMs": "<+397s>",
           "pool": []
         },
         "players": {
@@ -1580,7 +1580,7 @@
             "topic": "APIE Evaluation"
           },
           "cleared": 5,
-          "endsAtMs": "<+451s>",
+          "endsAtMs": "<+397s>",
           "pool": []
         },
         "players": {

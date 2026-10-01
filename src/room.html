@@ -613,7 +613,7 @@
 
     if (g.allHands && !g.allHands.solved && new Date(g.allHands.endsAt).getTime() > Date.now()) {
       h += '<div class="allhands">&#9995; ALL HANDS &mdash; ' + esc(g.allHands.topic) +
-        '<div style="font-size:0.9rem;font-weight:600;margin-top:4px">on every phone now &middot; any correct answer buys 60 seconds</div></div>';
+        '<div style="font-size:0.9rem;font-weight:600;margin-top:4px">on every phone now &middot; first correct answer closes it</div></div>';
     }
 
     h += '<div class="clock" id="clock">--:--</div>' +
@@ -684,16 +684,33 @@
     paintClock();
   }
 
+  // The setup form is the only screen with fields she types into, and every
+  // path off it re-renders. Read them back into S before that happens, from
+  // ONE place, so a new control on this form cannot forget to.
+  function stashSetup() {
+    var cc = document.getElementById('cc');
+    var pin = document.getElementById('pin');
+    if (cc) S.classCode = cc.value.trim();
+    if (pin) S.pin = pin.value;
+  }
+
   function bind() {
     // Picking a game re-renders the setup form, because each format asks for
     // different settings.
     var sel = document.getElementById('game');
-    if (sel) sel.onchange = function () { S.game = sel.value; render(); };
+    if (sel) sel.onchange = function () {
+      // Keep what she has already typed. render() rebuilds this form out of S,
+      // and S.classCode/S.pin were only written when Create was clicked - so
+      // choosing a game silently blanked both boxes, and the next click came
+      // back with "Class code and PIN are both needed" over an empty form.
+      stashSetup();
+      S.game = sel.value;
+      render();
+    };
 
     var c = document.getElementById('create');
     if (c) c.onclick = function () {
-      S.classCode = document.getElementById('cc').value.trim();
-      S.pin = document.getElementById('pin').value;
+      stashSetup();
       if (!S.classCode || !S.pin) { S.err = 'Class code and PIN are both needed.'; render(); return; }
       try { sessionStorage.setItem('rt-room', JSON.stringify({ c: S.classCode, p: S.pin, g: S.game })); } catch (e) {}
       var def = GAMES[S.game] || GAMES.buytime;

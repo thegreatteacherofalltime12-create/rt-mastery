@@ -941,6 +941,13 @@
       totalQuestions: o.total,
       avgLevel: CHAPTERS.length ? Math.round((levelSum / CHAPTERS.length) * 10) / 10 : 1,
       weakTopics: weak,
+      // The full per-topic breakdown, not just the weak end. "How many has she
+      // answered" does not tell an instructor what to re-teach; what she is
+      // getting right and wrong, by topic, does. Short keys because this rides
+      // on every round's write: 83 topics is about 3KB, well inside a document.
+      topics: topicStats().map(function (t) {
+        return { t: t.topic, r: t.right, s: t.seen };
+      }),
       tokens: S.stats.tokens || 0,
       bestExam: runs.reduce(function (m, r) { return Math.max(m, r.pct || 0); }, 0),
       examRuns: runs.slice(-3)
@@ -985,7 +992,11 @@
     return gained;
   }
 
-  function weakestTopics(n) {
+  // Every topic this student has actually attempted, right and seen, weakest
+  // first. One aggregation: the weak list she sees on her own map and the
+  // breakdown the instructor reads are the same numbers, so they can never
+  // disagree about who is struggling with what.
+  function topicStats() {
     var map = {};
     allQuestions().forEach(function (q) {
       // Every question keeps a SEPARATE record per level, because recKey
@@ -1001,10 +1012,17 @@
       }
     });
     return Object.keys(map).map(function (t) {
-      return { topic: t, pct: Math.round(100 * map[t].right / map[t].seen), seen: map[t].seen };
-    }).filter(function (x) { return x.seen >= 2; })
-      .sort(function (a, b) { return a.pct - b.pct; })
-      .slice(0, n || 5);
+      return { topic: t, right: map[t].right, seen: map[t].seen,
+               pct: Math.round(100 * map[t].right / map[t].seen) };
+    }).sort(function (a, b) {
+      // Weakest first, and within a tie the one with more attempts - a topic
+      // missed four times out of six is a surer signal than one out of two.
+      return (a.pct - b.pct) || (b.seen - a.seen);
+    });
+  }
+
+  function weakestTopics(n) {
+    return topicStats().filter(function (x) { return x.seen >= 2; }).slice(0, n || 5);
   }
 
   // ---------------------------------------------------------------- render
@@ -1852,7 +1870,7 @@
         var a = g.allHands;
         if (a && !a.solved && new Date(a.endsAt).getTime() > Date.now()) {
           h += '<div class="banner warn" style="text-align:center"><b>&#9995; ALL HANDS</b> &mdash; ' +
-               '60 seconds for the room if you get this</div>';
+               'everyone has this one. Clear it before the window shuts.</div>';
         }
         return h;
       },
@@ -2297,6 +2315,16 @@
 
   // Every poll that misses the Worker's cache is a billed Firestore read, so
   // the loop has to have a way to end. A finished round cannot change again.
+  // Is the student's finger in something? On the live screen the only focusable
+  // fields are the question's own controls - the exit arrow is a button, which
+  // is not matched here, so a held render cannot strand anyone on the screen.
+  function inAControl() {
+    var el = document.activeElement;
+    if (!el) return false;
+    var t = el.tagName;
+    return t === 'SELECT' || t === 'INPUT' || t === 'TEXTAREA';
+  }
+
   function startLivePolling() {
     stopLivePolling();
     LIVE.lastJson = '';
@@ -2319,6 +2347,24 @@
           var pdef = liveDef(rm);
           var j = JSON.stringify(rm) + (pdef && pdef.sig ? pdef.sig(liveState(rm)) : '');
           if (j === LIVE.lastJson) return;
+
+          // Holding the render above only covers an UNCHANGED room. With ten
+          // phones answering, the document changes every few seconds, and
+          // render() replaces the whole body - so a native <select> closed the
+          // instant it was opened and a matching question was effectively
+          // unanswerable in a live round. Same reason a write-in lost focus
+          // mid-word. Hold the paint while the student is inside a control;
+          // lastJson is deliberately NOT advanced, so the next poll applies it.
+          // The clock runs on its own 250ms interval, so nothing freezes.
+          var ahNow = liveState(rm).allHands;
+          var ahOpen = ahNow && !ahNow.solved &&
+            new Date(ahNow.endsAt).getTime() > Date.now() &&
+            LIVE.view && !LIVE.view.answered && LIVE.view.q.id !== ahNow.qid;
+          // ALL HANDS replaces the question outright and closes on a clock, and
+          // the end of the round must never be sat on, so both override the hold.
+          var terminal = rm.state === 'ended' || rm.state === 'won';
+          if (!ahOpen && !terminal && inAControl()) return;
+
           LIVE.lastJson = j;
 
           var wasRunning = LIVE.room && LIVE.room.state === 'running';
@@ -3225,6 +3271,10 @@
       // record is filed under and the level the XP is paid at were ever allowed
       // to differ, so the test drives the real thing rather than a stand-in.
       LEVELS: LEVELS, LIVE: LIVE, serveNextLive: serveNextLive,
+      // Exported so the render hold can be pinned: the exit arrow is a BUTTON,
+      // and if that ever started holding, a student could be stranded on a
+      // finished round with no way to see it ended.
+      inAControl: inAControl,
       liveAnswer: liveAnswer, viewLive: viewLive,
       applyResult: applyResult, answerCurrent: answerCurrent
     };

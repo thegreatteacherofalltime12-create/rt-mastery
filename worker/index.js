@@ -201,6 +201,17 @@ async function handleProgress(request, env) {
     totalQuestions: Number(body.totalQuestions) || 0,
     avgLevel: Number(body.avgLevel) || 1,
     weakTopics: Array.isArray(body.weakTopics) ? body.weakTopics.slice(0, 10).map(String) : [],
+    // Per-topic right/seen, so the instructor can see WHAT a student is getting
+    // wrong rather than how much they have done. Clamped and coerced here: this
+    // is client-supplied and lands in a document every other read pays for.
+    // 120 is above the 83 topics the bank has, so nothing real is truncated.
+    topics: Array.isArray(body.topics)
+      ? body.topics.slice(0, 120).map((t) => ({
+          t: String((t && t.t) || '').slice(0, 80),
+          r: Math.max(0, Number(t && t.r) || 0),
+          s: Math.max(0, Number(t && t.s) || 0)
+        })).filter((t) => t.t && t.s > 0)
+      : [],
     tokens: Number(body.tokens) || 0,
     bestExam: Number(body.bestExam) || 0,
     examRuns: Array.isArray(body.examRuns) ? body.examRuns.slice(-3) : [],
@@ -276,6 +287,11 @@ async function handleClass(url, env) {
           return canonTopic(m[1]) + (m[2] || '');
         }) }
       : s))
+    // The breakdown needs the same fold, or a renamed topic shows up twice in
+    // one student's own list while she has yet to resync.
+    .map((s) => (Array.isArray(s.topics)
+      ? { ...s, topics: s.topics.map((t) => ({ ...t, t: canonTopic(String(t.t)) })) }
+      : { ...s, topics: [] }))
     .sort((a, b) => (b.mastered || 0) - (a.mastered || 0));
 
   // roll up the topics the class as a whole is weakest on
@@ -300,7 +316,26 @@ async function handleClass(url, env) {
     .sort((a, b) => b.students - a.students)
     .slice(0, 12);
 
-  const payload = { code, count: students.length, students, classWeak };
+  // The class seen through the actual answers rather than through each phone's
+  // own top-six. classWeak counts how many students flagged a topic; this says
+  // how the class is really doing on it, and how many have met it at all - a
+  // topic eight students are getting wrong is a different lesson from one that
+  // two students have barely seen.
+  const topicRoll = {};
+  for (const s of students) {
+    for (const t of s.topics || []) {
+      const k = t.t;
+      if (!topicRoll[k]) topicRoll[k] = { topic: k, right: 0, seen: 0, students: 0 };
+      topicRoll[k].right += t.r;
+      topicRoll[k].seen += t.s;
+      topicRoll[k].students += 1;
+    }
+  }
+  const classTopics = Object.keys(topicRoll)
+    .map((k) => ({ ...topicRoll[k], pct: Math.round(100 * topicRoll[k].right / topicRoll[k].seen) }))
+    .sort((a, b) => (a.pct - b.pct) || (b.seen - a.seen));
+
+  const payload = { code, count: students.length, students, classWeak, classTopics };
   classCache = { key: code, at: Date.now(), value: payload };
   return json(payload);
 }
@@ -563,7 +598,6 @@ const SECONDS = {
   3: [12, 9, 7]
 };
 const POOL_MULTIPLIER = 2;                // clearing someone else's miss is worth double
-const ALL_HANDS_BONUS = 60;
 const MAX_SHARE = 0.6;                    // no one student may clear more than this share
 
 // ------------------------------------------------------------------ the seam
@@ -846,11 +880,15 @@ const GAMES = {
           room.gs.pool = room.gs.pool.filter((p) => p.qid !== qid);
         }
 
+        // ALL HANDS pays NO bonus. It used to overwrite seconds with a flat 60,
+        // against 5-12 for an ordinary clear, so one answer was worth more than
+        // the rest of the round put together and the clock stopped meaning
+        // anything. It still scores, still closes, and still clears the pool
+        // item - it just earns what the question is worth like everything else.
         const ah = room.gs.allHands;
         const answeringAllHands = ah && !ah.solved && ah.qid === qid &&
           Date.now() < new Date(ah.endsAt).getTime();
         if (answeringAllHands) {
-          seconds = ALL_HANDS_BONUS;
           room.gs.allHands.solved = true;
           room.gs.pool = room.gs.pool.filter((p) => p.qid !== qid);
         }
