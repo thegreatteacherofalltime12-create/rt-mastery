@@ -129,8 +129,10 @@ students ever see it.
 
 See **[GAMES.md](GAMES.md)**. The engine carries several live and solo formats;
 **Buy Time** is the one that is built. That document records the designs, the
-honest flaw in each, and the six rules any new format has to obey — a class of
-exactly ten is a hard design constraint, not a detail.
+honest flaw in each, and the six rules any new format has to obey. A live round
+sizes itself to the people in it: the instructor sets the work per student and
+the room multiplies by however many joined, so ten students and twenty-five get
+the same length of round.
 
 ---
 

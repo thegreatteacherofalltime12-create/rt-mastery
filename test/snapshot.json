@@ -14,6 +14,7 @@
           "gs": {
             "allHands": null,
             "cleared": 0,
+            "each": 0,
             "endsAtMs": null,
             "perStudentCap": 4,
             "pool": [],
@@ -33,6 +34,7 @@
       },
       "doc": {
         "cfg": {
+          "each": 0,
           "minutes": 5,
           "target": 6
         },
@@ -65,6 +67,7 @@
           "gs": {
             "allHands": null,
             "cleared": 0,
+            "each": 0,
             "endsAtMs": null,
             "perStudentCap": 4,
             "pool": [],
@@ -92,6 +95,7 @@
       },
       "doc": {
         "cfg": {
+          "each": 0,
           "minutes": 5,
           "target": 6
         },
@@ -128,6 +132,7 @@
           "gs": {
             "allHands": null,
             "cleared": 0,
+            "each": 0,
             "endsAtMs": null,
             "perStudentCap": 4,
             "pool": [],
@@ -161,6 +166,7 @@
       },
       "doc": {
         "cfg": {
+          "each": 0,
           "minutes": 5,
           "target": 6
         },
@@ -200,6 +206,7 @@
           "gs": {
             "allHands": null,
             "cleared": 0,
+            "each": 0,
             "endsAtMs": null,
             "perStudentCap": 4,
             "pool": [],
@@ -233,6 +240,7 @@
       },
       "doc": {
         "cfg": {
+          "each": 0,
           "minutes": 5,
           "target": 6
         },
@@ -272,6 +280,7 @@
           "gs": {
             "allHands": null,
             "cleared": 0,
+            "each": 0,
             "endsAtMs": "<+300s>",
             "perStudentCap": 4,
             "pool": [],
@@ -305,6 +314,7 @@
       },
       "doc": {
         "cfg": {
+          "each": 0,
           "minutes": 5,
           "target": 6
         },
@@ -344,6 +354,7 @@
           "gs": {
             "allHands": null,
             "cleared": 0,
+            "each": 0,
             "endsAtMs": "<+300s>",
             "perStudentCap": 4,
             "pool": [
@@ -390,6 +401,7 @@
       },
       "doc": {
         "cfg": {
+          "each": 0,
           "minutes": 5,
           "target": 6
         },
@@ -435,6 +447,7 @@
           "gs": {
             "allHands": null,
             "cleared": 0,
+            "each": 0,
             "endsAtMs": "<+300s>",
             "perStudentCap": 4,
             "pool": [
@@ -481,6 +494,7 @@
       },
       "doc": {
         "cfg": {
+          "each": 0,
           "minutes": 5,
           "target": 6
         },
@@ -526,6 +540,7 @@
           "gs": {
             "allHands": null,
             "cleared": 0,
+            "each": 0,
             "endsAtMs": "<+300s>",
             "perStudentCap": 4,
             "pool": [
@@ -571,6 +586,7 @@
       },
       "doc": {
         "cfg": {
+          "each": 0,
           "minutes": 5,
           "target": 6
         },
@@ -621,6 +637,7 @@
           "gs": {
             "allHands": null,
             "cleared": 1,
+            "each": 0,
             "endsAtMs": "<+316s>",
             "perStudentCap": 4,
             "pool": [],
@@ -655,6 +672,7 @@
       },
       "doc": {
         "cfg": {
+          "each": 0,
           "minutes": 5,
           "target": 6
         },
@@ -695,6 +713,7 @@
           "gs": {
             "allHands": null,
             "cleared": 1,
+            "each": 0,
             "endsAtMs": "<+316s>",
             "perStudentCap": 4,
             "pool": [
@@ -741,6 +760,7 @@
       },
       "doc": {
         "cfg": {
+          "each": 0,
           "minutes": 5,
           "target": 6
         },
@@ -799,6 +819,7 @@
               "topic": "APIE Evaluation"
             },
             "cleared": 1,
+            "each": 0,
             "endsAtMs": "<+316s>",
             "perStudentCap": 4,
             "pool": [
@@ -844,6 +865,7 @@
       },
       "doc": {
         "cfg": {
+          "each": 0,
           "minutes": 5,
           "target": 6
         },
@@ -913,6 +935,7 @@
               "topic": "APIE Evaluation"
             },
             "cleared": 2,
+            "each": 0,
             "endsAtMs": "<+322s>",
             "perStudentCap": 4,
             "pool": [],
@@ -947,6 +970,7 @@
       },
       "doc": {
         "cfg": {
+          "each": 0,
           "minutes": 5,
           "target": 6
         },
@@ -1006,6 +1030,7 @@
               "topic": "APIE Evaluation"
             },
             "cleared": 2,
+            "each": 0,
             "endsAtMs": "<+382s>",
             "perStudentCap": 4,
             "pool": [],
@@ -1039,6 +1064,7 @@
       },
       "doc": {
         "cfg": {
+          "each": 0,
           "minutes": 5,
           "target": 6
         },
@@ -1103,6 +1129,7 @@
               "topic": "APIE Evaluation"
             },
             "cleared": 3,
+            "each": 0,
             "endsAtMs": "<+387s>",
             "perStudentCap": 4,
             "pool": [],
@@ -1137,6 +1164,7 @@
       },
       "doc": {
         "cfg": {
+          "each": 0,
           "minutes": 5,
           "target": 6
         },
@@ -1201,6 +1229,7 @@
               "topic": "APIE Evaluation"
             },
             "cleared": 4,
+            "each": 0,
             "endsAtMs": "<+392s>",
             "perStudentCap": 4,
             "pool": [],
@@ -1235,6 +1264,7 @@
       },
       "doc": {
         "cfg": {
+          "each": 0,
           "minutes": 5,
           "target": 6
         },
@@ -1299,6 +1329,7 @@
               "topic": "APIE Evaluation"
             },
             "cleared": 5,
+            "each": 0,
             "endsAtMs": "<+397s>",
             "perStudentCap": 4,
             "pool": [],
@@ -1333,6 +1364,7 @@
       },
       "doc": {
         "cfg": {
+          "each": 0,
           "minutes": 5,
           "target": 6
         },
@@ -1397,6 +1429,7 @@
               "topic": "APIE Evaluation"
             },
             "cleared": 5,
+            "each": 0,
             "endsAtMs": "<+397s>",
             "perStudentCap": 4,
             "pool": [],
@@ -1431,6 +1464,7 @@
       },
       "doc": {
         "cfg": {
+          "each": 0,
           "minutes": 5,
           "target": 6
         },
@@ -1490,6 +1524,7 @@
               "topic": "APIE Evaluation"
             },
             "cleared": 5,
+            "each": 0,
             "endsAtMs": "<+397s>",
             "perStudentCap": 4,
             "pool": [],
@@ -1523,6 +1558,7 @@
       },
       "doc": {
         "cfg": {
+          "each": 0,
           "minutes": 5,
           "target": 6
         },
@@ -1564,6 +1600,7 @@
       },
       "doc": {
         "cfg": {
+          "each": 0,
           "minutes": 5,
           "target": 6
         },

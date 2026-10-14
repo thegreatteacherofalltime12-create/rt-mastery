@@ -16,17 +16,32 @@ set aside, and The Liar’s Table and Consult Service, which are not.
 These are not style preferences. Each one has already killed or reshaped a
 concept.
 
-**1. The class has exactly ten students, and they all know each other.**
+**1. The class is small, everyone knows everyone, and the size is not fixed.**
 
-Ten is small enough that a plain leaderboard names a specific person as last,
-every week, in front of everyone — and that person is by definition the one who
-most needs to keep playing. Every format here either has no ranking, ranks
-something other than students, or ranks against a private baseline. A format
-that cannot do one of those three does not ship.
+It was written as "exactly ten". That turned out to be the most expensive line
+in this document. When the class was twenty-five, Buy Time's forty clears were
+gone inside two minutes: the room hit its target while most of the class was
+still on its second question, and every answer after that came back *round is
+not running*. Sixty of a hundred answers refused. A whole class could not play,
+and nothing in the suite noticed, because every test room had two or three
+players in it.
 
-Ten is also small enough to be an asset: one truth plus nine student-written
-lies is exactly a ten-option question, and a ten-person round robin is five
-pairings a week with no byes.
+So a round is now sized from the people in it. The instructor sets the work
+**per student**, and the room multiplies it by however many actually turned up,
+at Start — the first moment that number is known. Ten or twenty-five, a round
+is the same length. `test/classsize.mjs` holds this at 2, 10, 25 and 40.
+
+What survives of the original rule is the part that was really about dignity,
+not arithmetic: the class is small enough that a plain leaderboard names a
+specific person as last, every week, in front of everyone — and that person is
+by definition the one who most needs to keep playing. Every format here either
+has no ranking, ranks something other than students, or ranks against a private
+baseline. A format that cannot do one of those three does not ship.
+
+A format may still *prefer* a size — one truth plus nine student-written lies
+is exactly a ten-option question — but it may no longer *require* one without
+saying so, and a format that breaks when five more students walk in is not
+finished.
 
 **2. Nothing a student gets wrong may cost anybody else anything.**
 

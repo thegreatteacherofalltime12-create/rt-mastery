@@ -598,7 +598,46 @@ const SECONDS = {
   3: [12, 9, 7]
 };
 const POOL_MULTIPLIER = 2;                // clearing someone else's miss is worth double
-const MAX_SHARE = 0.6;                    // no one student may clear more than this share
+
+// A round has to be sized for the people actually in it.
+//
+// Every number on the projector was chosen for a class of ten. At twenty-five
+// students Buy Time's forty clears were gone inside the first two minutes: the
+// room hit its target while most of the class was still on its second question,
+// and every answer after that came back "round is not running". Measured on
+// this worker at twenty-five, sixty of a hundred answers were refused. That is
+// a class that cannot play.
+//
+// So the instructor sets the work PER STUDENT, and the room multiplies it by
+// the number who actually turned up - at start, which is the first moment that
+// number is known. Ten students or twenty-five, a round is the same length.
+function headcount(room) {
+  return Math.max(1, Object.keys(room.players || {}).length);
+}
+
+// No one student may run away with the round. This was a flat share of the
+// target with no reference to how many people were in the room, so the bigger
+// the class the weaker it got: at twenty-five, one student could still take
+// sixty per cent of the whole round and end it before the slower half had
+// answered once. It is now a multiple of a fair share, with a floor so a
+// half-empty room still has a game.
+const CLASS_GUESS = 10;                   // placeholder class size, until start replaces it
+const MAX_SHARE = 0.6;                    // never more than this share of the whole round
+const SHARE_MULTIPLE = 3;                 // nor more than three times a fair share
+const MIN_CAP = 4;                        // ...and never fewer than this
+function clearCap(room) {
+  const cfg = room.cfg || room;
+  const target = cfg.target || 40;
+  // BOTH bounds are needed, and the first draft of this had only the second.
+  // Three fair shares is 1.5x the whole target in a room of two, so it caps
+  // nothing at all there - the suite caught it as a student sailing past a cap
+  // that used to hold. The share ceiling binds in a small room, the fair-share
+  // multiple binds in a big one, and the floor keeps a tiny room playable.
+  return Math.max(MIN_CAP, Math.min(
+    Math.ceil(target * MAX_SHARE),
+    Math.ceil((target * SHARE_MULTIPLE) / headcount(room))
+  ));
+}
 
 // ------------------------------------------------------------------ the seam
 //
@@ -776,10 +815,18 @@ const GAMES = {
     label: 'Buy Time',
     blurb: 'One clock the whole class keeps alive',
 
-    // What the instructor chose. Clamped here, never mutated afterwards.
+    // What the instructor chose. She sets the work PER STUDENT; `target` is
+    // provisional until start, when the room learns how many turned up.
     config(body) {
+      const each = Math.min(20, Math.max(1, Number(body.each) || 4));
+      // A projector that predates this still names an absolute target. Honour
+      // it rather than quietly resizing a round she already decided on.
+      const fixed = !body.each && Number(body.target) > 0;
       return {
-        target: Math.min(200, Math.max(5, Number(body.target) || 40)),
+        each: fixed ? 0 : each,
+        target: fixed
+          ? Math.min(400, Math.max(5, Number(body.target)))
+          : Math.min(400, Math.max(5, each * CLASS_GUESS)),
         minutes: Math.min(60, Math.max(1, Number(body.minutes) || 5))
       };
     },
@@ -794,11 +841,14 @@ const GAMES = {
       const cfg = room.cfg || room;
       const gs = room.gs || room;
       const players = room.players || {};
-      const cap = Math.max(1, Math.ceil((cfg.target || 40) * MAX_SHARE));
+      const cap = clearCap(room);
       const scores = {};
       for (const id of Object.keys(players)) scores[id] = players[id].cleared || 0;
       return {
         target: cfg.target,
+        // Additive. A bundle already on a phone ignores a key it has never
+        // heard of, and `target` keeps meaning exactly what it always meant.
+        each: cfg.each || 0,
         startMinutes: cfg.minutes || cfg.startMinutes || 5,
         cleared: gs.cleared || 0,
         endsAtMs: gs.endsAtMs || null,
@@ -814,6 +864,14 @@ const GAMES = {
     // omits this hook.
     onStart(room, set) {
       const cfg = room.cfg || {};
+      // The target is fixed HERE, not at create. Create happens before anyone
+      // has joined, so it is the one moment in a round's life when the room
+      // cannot know how big the class is. `each` is 0 only for an older
+      // projector that named an absolute target, and that number is left alone.
+      if (cfg.each) {
+        const t = Math.min(400, Math.max(5, Math.ceil(cfg.each * headcount(room))));
+        room.cfg.target = set['cfg.target'] = t;
+      }
       room.gs.endsAtMs = set['gs.endsAtMs'] =
         Date.now() + (cfg.minutes || 5) * 60000;
     },
@@ -864,7 +922,7 @@ const GAMES = {
 
       async clear(room, ctx) {
         const qid = String(ctx.body.qid || '').slice(0, 40);
-        const cap = Math.max(1, Math.ceil((room.cfg.target || 40) * MAX_SHARE));
+        const cap = clearCap(room);
         const mine = (room.players[ctx.studentId] || {}).cleared || 0;
         const counted = mine < cap;
 

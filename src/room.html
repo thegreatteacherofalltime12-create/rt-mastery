@@ -189,8 +189,11 @@
       // the create-time settings this format needs
       settings: function () {
         return '<div class="btn-row">' +
-          '<div class="field" style="flex:1;margin:0"><label for="target">Questions to clear</label>' +
-          '<input id="target" type="number" value="40" min="5" max="200"></div>' +
+          // Per student, not per room. A fixed total is a different round for a
+          // class of ten and a class of twenty-five - at twenty-five, forty
+          // clears were gone before most of the class had answered twice.
+          '<div class="field" style="flex:1;margin:0"><label for="each">Questions each</label>' +
+          '<input id="each" type="number" value="4" min="1" max="20"></div>' +
           '<div class="field" style="flex:1;margin:0"><label for="mins">Starting clock (min)</label>' +
           '<input id="mins" type="number" value="5" min="1" max="60"></div>' +
           '</div>';
@@ -198,7 +201,7 @@
       // read back into the create payload
       config: function () {
         return {
-          target: Number(document.getElementById('target').value) || 40,
+          each: Number(document.getElementById('each').value) || 4,
           minutes: Number(document.getElementById('mins').value) || 5
         };
       },
@@ -596,8 +599,18 @@
       '<span class="pill">' + r.players.length + ' joined</span></div>' +
       '<div class="card pad-lg center"><p class="dim" style="margin:0 0 4px">Room code</p>' +
       '<div class="roomcode">' + esc(r.code) + '</div>' +
-      '<p class="dim">Clear <b>' + g.target + '</b> questions before the clock runs out. ' +
-      'Starting clock <b>' + (g.startMinutes || 5) + ':00</b>.</p></div>' +
+      // The target is not fixed until Start, because that is the first moment
+      // the room knows how many turned up. Showing the provisional number here
+      // would be a promise the round does not keep.
+      '<p class="dim">' +
+      (g.each
+        ? '<b>' + g.each + '</b> question' + (g.each === 1 ? '' : 's') + ' each &mdash; ' +
+          (r.players.length
+            ? 'that is <b>' + (g.each * r.players.length) + '</b> to clear for the ' +
+              r.players.length + ' here now.'
+            : 'the target is set when you press Start, from whoever is in the room.')
+        : 'Clear <b>' + g.target + '</b> questions before the clock runs out.') +
+      ' Starting clock <b>' + (g.startMinutes || 5) + ':00</b>.</p></div>' +
       '<div class="card"><h3>In the room</h3>' +
       (r.players.length
         ? '<div>' + r.players.map(function (p) { return '<span class="player">' + esc(p.name) + '</span>'; }).join('') + '</div>'
