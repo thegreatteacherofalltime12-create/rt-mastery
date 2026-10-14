@@ -11,13 +11,38 @@ const path = require('path');
 // phone both draw this, and the Worker only ever deals in indices, so the
 // list must not drift between them. Emitting it from here makes that
 // impossible rather than merely unlikely.
+// The round ends the moment the last barrier is found, so the length of a
+// Walk-Through is governed by how many areas there are to sweep - not by the
+// clock. Thirty areas is three surveys each for a class of ten and under one
+// each for a class of twenty-five, which is no round at all. The building is
+// ninety areas so it can be sized to the class; a small class audits a wing,
+// a large one audits the floor.
+//
+// These are generic facility spaces, written here rather than drawn from the
+// instructor's question bank. The teaching content is the BARRIERS below and
+// the questions behind each survey, which are hers. Worth her eye all the
+// same, since the class reads these names on a wall.
 const WALK_AREAS = [
   'Main entrance', 'Reception desk', 'Front corridor', 'Lift lobby', 'Stairwell A',
   'Day room', 'Quiet room', 'Group therapy room', 'Art studio', 'Music room',
   'Kitchen', 'Dining hall', 'Servery', 'Staff office', 'Nurse station',
   'Accessible WC', 'Main WC', 'Changing places room', 'Shower room', 'Locker room',
   'Pool deck', 'Pool hoist', 'Gym floor', 'Equipment store', 'Therapy garden',
-  'Garden path', 'Raised beds', 'Car park', 'Drop-off bay', 'Rear exit'
+  'Garden path', 'Raised beds', 'Car park', 'Drop-off bay', 'Rear exit',
+
+  'Stairwell B', 'Side corridor', 'Rear corridor', 'Service lift', 'Fire exit route',
+  'Ramp to garden', 'Covered walkway', 'Internal courtyard', 'Atrium', 'Mezzanine',
+  'Physiotherapy room', 'Occupational therapy room', 'Speech therapy room',
+  'Treatment room', 'Consulting room 1', 'Consulting room 2', 'Assessment suite',
+  'Sensory room', 'Rehabilitation gym', 'Hydrotherapy pool',
+  'Games room', 'Library corner', 'Computer room', 'Craft room', 'Woodwork shop',
+  'Greenhouse', 'Activity hall', 'Cinema room', 'Snoezelen room', 'Bowling lane',
+  'Residents lounge', 'Family room', 'Visitor lounge', 'Tea point', 'Vending area',
+  'Cafe seating', 'Outdoor terrace', 'Shelter by the door', 'Prayer room', 'Multi-faith room',
+  'Laundry', 'Linen store', 'Cleaning store', 'Plant room', 'Waste store',
+  'Loading bay', 'Staff room', 'Staff WC', 'Staff changing', 'Records office',
+  'Accessible parking bay', 'Cycle store', 'Bus stop', 'Footpath to entrance',
+  'Crossing point', 'Garden gate', 'Sensory garden', 'Orchard', 'Potting shed', 'Pond edge'
 ];
 
 // What a walk-through can turn up. These are the barriers a Therapeutic

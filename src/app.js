@@ -2465,7 +2465,10 @@
         '<p class="dim" style="font-size:0.9rem;margin-top:0">Pick an area you have not surveyed. ' +
         'Answer the question correctly and you will see what is wrong with it.</p>' +
         '<div class="areagrid">' +
-        AREAS.map(function (name, i) {
+        // Only the areas THIS audit covers. The board is sized to the class at
+        // start, so the name list outruns it - offering the rest would hand a
+        // student a button the Worker answers with "no such area".
+        AREAS.slice(0, g.areas || AREAS.length).map(function (name, i) {
           var st = seen[i];
           if (st) {
             return '<span class="area done ' + (st === 'clear' ? 'ok' : 'bad') + '">' +

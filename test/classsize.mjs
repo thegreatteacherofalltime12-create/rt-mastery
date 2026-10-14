@@ -133,6 +133,66 @@ const legacy = await playBuyTime(10, { target: 55 });
 check('an older projector\'s absolute target is left alone',
   legacy.target === 55, 'target ' + legacy.target);
 
+// ---------------------------------------------------------------------------
+// The Walk-Through has the same disease from a different direction. It ends the
+// moment the last barrier is found, so its length is set by how much building
+// there is to sweep - the clock never gets a say. A fixed thirty-area board was
+// three surveys each for ten students and under one each for twenty-five.
+// ---------------------------------------------------------------------------
+async function walkThrough(size, createBody) {
+  const names = [];
+  for (let i = 0; i < size; i++) names.push('Walker ' + i);
+  const mk = await call('POST', '/api/room', Object.assign(
+    { action: 'create', classCode: CLASS, pin: PIN, game: 'walkthrough', minutes: 15 }, createBody));
+  const code = mk.j.room.code;
+  for (const name of names) {
+    await call('POST', '/api/room/event', { classCode: CLASS, code, name, type: 'join', games: GAMES });
+  }
+  const started = await call('POST', '/api/room', { action: 'start', classCode: CLASS, pin: PIN, code });
+  const g0 = started.j.room.gs || started.j.room;
+
+  // Sweep the board until the round shuts, which is when the last barrier is
+  // found. That count IS the length of the round.
+  let surveyed = 0;
+  for (let cell = 0; cell < 200; cell++) {
+    const r = await call('POST', '/api/room/event', {
+      classCode: CLASS, code, name: names[cell % size], type: 'clear',
+      qid: 'q' + cell, topic: 'Access', chapter: 'ch7', cell: cell % g0.areas
+    });
+    if (r.status !== 200) break;
+    if (r.j.surveyed) surveyed++;
+  }
+  return { areas: g0.areas, barriers: g0.total, surveyed, per: surveyed / size, size };
+}
+
+for (const size of [2, 10, 25, 40]) {
+  const w = await walkThrough(size, { each: 3, maxAreas: 90 });
+
+  check('a class of ' + size + ' gets a building sized for it',
+    w.areas === Math.min(90, Math.max(6, 3 * size)),
+    'areas ' + w.areas + ' for ' + size + ' students at 3 each');
+
+  check('a class of ' + size + ' gets barriers in proportion to the building',
+    w.barriers === Math.min(24, Math.max(1, Math.round(w.areas / 5))),
+    'barriers ' + w.barriers + ' in ' + w.areas + ' areas');
+
+  // The regression: a round that is over before most of the class has answered.
+  check('a class of ' + size + ' gets more than one survey each',
+    w.per > 1.5, w.per.toFixed(1) + ' surveys each (' + w.surveyed + ' over ' + size + ' students)');
+}
+
+// The Worker must never build a board bigger than the projector can NAME, or
+// the wall fills with blank cells. An older projector reports nothing and has
+// thirty names.
+const narrow = await walkThrough(25, { each: 3 });
+check('the board never outruns what the client can name',
+  narrow.areas === 30, 'areas ' + narrow.areas + ' with no maxAreas reported');
+
+const fixedBoard = await walkThrough(10, { areas: 24, barriers: 5 });
+check('an older projector\'s absolute board is left alone',
+  fixedBoard.areas === 24 && fixedBoard.barriers === 5,
+  'areas ' + fixedBoard.areas + ' barriers ' + fixedBoard.barriers);
+
 restore();
 if (failures.length) {
   console.error('\nCLASS SIZE FAILURES:');

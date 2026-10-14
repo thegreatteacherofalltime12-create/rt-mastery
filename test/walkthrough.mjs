@@ -49,8 +49,12 @@ check('the plan never appears on the create response',
 const polled = await call('GET', `/api/room?classCode=${CLASS}&code=${code}`);
 check('the plan never appears on a poll either',
       JSON.stringify(polled.j).indexOf('plan') === -1, JSON.stringify(polled.j).slice(0, 200));
+// An exact key set, not a "plan is absent" check: anything new on this payload
+// has to be looked at and added here deliberately, because the whole game is
+// one secret and the next field added might carry a piece of it. `each` is the
+// areas-per-student the instructor chose, which the lobby prints on the wall.
 check('a poll carries only what has been surveyed',
-      Object.keys(polled.j.room.gs).sort().join(',') === 'areas,done,endsAtMs,found,seen,startMinutes,surveyed,total',
+      Object.keys(polled.j.room.gs).sort().join(',') === 'areas,done,each,endsAtMs,found,seen,startMinutes,surveyed,total',
       Object.keys(polled.j.room.gs).join(','));
 
 await call('POST', '/api/room/event',

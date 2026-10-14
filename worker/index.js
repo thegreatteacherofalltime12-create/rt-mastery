@@ -622,6 +622,41 @@ function headcount(room) {
 // answered once. It is now a multiple of a fair share, with a floor so a
 // half-empty room still has a game.
 const CLASS_GUESS = 10;                   // placeholder class size, until start replaces it
+
+// The Walk-Through ends the moment the last barrier is found, so its length is
+// set by how much building there is to sweep - the clock never gets a say. A
+// thirty-area board is three surveys each for ten students and under one each
+// for twenty-five. So the building is sized to the class too, from the same
+// headcount, and bounded by how many areas the CLIENT can actually name.
+const WALK_MAX_AREAS = 90;
+const WALK_BARRIER_RATE = 5;              // about one barrier in every five areas
+// The layout is drawn HERE, server-side. A client cannot influence it and
+// cannot read it. Lifted out of newState because start redraws it: the board
+// is not sized until the room knows how many students turned up.
+function drawPlan(areas, barriers) {
+  const count = Math.min(barriers, areas);
+  const picks = [];
+  const bytes = crypto.getRandomValues(new Uint32Array(count * 4));
+  let b = 0;
+  while (picks.length < count && b < bytes.length) {
+    const cell = bytes[b++] % areas;
+    if (picks.indexOf(cell) === -1) picks.push(cell);
+  }
+  // fall back to a linear sweep if the draw kept colliding
+  for (let i = 0; picks.length < count && i < areas; i++) {
+    if (picks.indexOf(i) === -1) picks.push(i);
+  }
+  return picks;
+}
+
+function walkSize(cfg, heads) {
+  const maxAreas = Math.min(WALK_MAX_AREAS, Math.max(6, cfg.maxAreas || 30));
+  const areas = Math.min(maxAreas, Math.max(6, Math.ceil((cfg.each || 3) * heads)));
+  return {
+    areas: areas,
+    barriers: Math.min(24, Math.max(1, Math.round(areas / WALK_BARRIER_RATE)))
+  };
+}
 const MAX_SHARE = 0.6;                    // never more than this share of the whole round
 const SHARE_MULTIPLE = 3;                 // nor more than three times a fair share
 const MIN_CAP = 4;                        // ...and never fewer than this
@@ -1213,9 +1248,25 @@ const GAMES = {
     blurb: 'An accessibility audit of a floor plan. Pick an area, answer correctly, and see what is wrong with it. The class audits one building together.',
 
     config(body) {
+      // How many areas this room may use at most. The CLIENT names the areas -
+      // the Worker only ever deals in indices - so a board bigger than the
+      // bundle's own list would render blank cells on a phone that has not
+      // been reloaded. The projector reports what it can draw, exactly as a
+      // phone reports which games it can play on join; an older projector
+      // sends nothing and gets the board it has always had.
+      const maxAreas = Math.min(WALK_MAX_AREAS, Math.max(6, Number(body.maxAreas) || 30));
+      const each = Math.min(10, Math.max(1, Number(body.each) || 3));
+      // An older projector names an absolute board. Leave it alone.
+      const fixed = !body.each && Number(body.areas) > 0;
       return {
-        areas: Math.min(60, Math.max(6, Number(body.areas) || 30)),
-        barriers: Math.min(20, Math.max(1, Number(body.barriers) || 6)),
+        maxAreas: maxAreas,
+        each: fixed ? 0 : each,
+        areas: fixed
+          ? Math.min(maxAreas, Math.max(6, Number(body.areas)))
+          : walkSize({ each: each, maxAreas: maxAreas }, CLASS_GUESS).areas,
+        barriers: fixed
+          ? Math.min(24, Math.max(1, Number(body.barriers) || 6))
+          : walkSize({ each: each, maxAreas: maxAreas }, CLASS_GUESS).barriers,
         minutes: Math.min(60, Math.max(1, Number(body.minutes) || 15))
       };
     },
@@ -1223,20 +1274,10 @@ const GAMES = {
     // The layout is drawn HERE, server-side, once. A client cannot influence
     // it and cannot read it.
     newState(cfg) {
-      const n = (cfg && cfg.areas) || 30;
-      const count = Math.min((cfg && cfg.barriers) || 6, n);
-      const picks = [];
-      const bytes = crypto.getRandomValues(new Uint32Array(count * 4));
-      let b = 0;
-      while (picks.length < count && b < bytes.length) {
-        const cell = bytes[b++] % n;
-        if (picks.indexOf(cell) === -1) picks.push(cell);
-      }
-      // fall back to a linear sweep if the draw kept colliding
-      for (let i = 0; picks.length < count && i < n; i++) {
-        if (picks.indexOf(i) === -1) picks.push(i);
-      }
-      return { plan: picks, seen: {}, found: 0, surveyed: 0, endsAtMs: 0 };
+      return {
+        plan: drawPlan((cfg && cfg.areas) || 30, (cfg && cfg.barriers) || 6),
+        seen: {}, found: 0, surveyed: 0, endsAtMs: 0
+      };
     },
 
     project(room) {
@@ -1245,6 +1286,8 @@ const GAMES = {
       const total = (cfg.barriers || 6);
       return {
         areas: cfg.areas || 30,
+        // Additive, like Buy Time's. A bundle already on a phone ignores it.
+        each: cfg.each || 0,
         total: total,
         startMinutes: cfg.minutes || 15,
         endsAtMs: gs.endsAtMs || null,
@@ -1257,8 +1300,20 @@ const GAMES = {
     },
 
     onStart(room, set) {
+      // Size the building to the class, then redraw. The plan drawn at create
+      // was for a provisional board; keeping it would leave barriers sitting
+      // on cells that are no longer part of the audit, and the round could
+      // never finish. `each` is 0 only for an older projector that named an
+      // absolute board, and that one is left exactly as she set it.
+      const cfg = room.cfg || {};
+      if (cfg.each) {
+        const size = walkSize(cfg, headcount(room));
+        room.cfg.areas = set['cfg.areas'] = size.areas;
+        room.cfg.barriers = set['cfg.barriers'] = size.barriers;
+        room.gs.plan = set['gs.plan'] = drawPlan(size.areas, size.barriers);
+      }
       room.gs.endsAtMs = set['gs.endsAtMs'] =
-        Date.now() + (room.cfg.minutes || 15) * 60000;
+        Date.now() + (cfg.minutes || 15) * 60000;
     },
 
     actions: {
