@@ -63,6 +63,30 @@
   .field textarea:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
   .msgcount { text-align: right; margin: -8px 0 10px; }
   .msgcount.over { color: var(--bad); }
+
+  /* Screenshots. Fixed-size thumbnails, so a picture that loads late never
+     shifts the thread under her; tapping one opens it full size. */
+  .shots { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+  .shots a { display: block; line-height: 0; }
+  .shots img { width: 96px; height: 96px; object-fit: cover; border-radius: 8px;
+               border: 1px solid var(--line); background: var(--card-hi); }
+  .msgtools { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin: -4px 0 10px; }
+  .msgtools .msgcount { margin: 0 0 0 auto; }
+  .attach { position: relative; font: inherit; font-size: 0.9rem; font-weight: 650; padding: 9px 13px;
+            border-radius: var(--r-sm); border: 1px solid var(--line);
+            background: var(--card); color: var(--text); cursor: pointer; }
+  .attach:hover { background: var(--card-hi); }
+  .attach:focus-within { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .attach input { position: absolute; width: 1px; height: 1px; opacity: 0; overflow: hidden; }
+  .pending { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 10px; }
+  .pending:empty { display: none; }
+  .pend { position: relative; line-height: 0; }
+  .pend img { width: 72px; height: 72px; object-fit: cover; border-radius: 8px;
+              border: 1px solid var(--line); background: var(--card-hi); }
+  .pend button { position: absolute; top: -7px; right: -7px; width: 26px; height: 26px;
+                 border-radius: 50%; border: 1px solid var(--line); background: var(--card);
+                 color: var(--text); font-size: 0.8rem; line-height: 1; cursor: pointer; padding: 0; }
+  .pend button:hover { background: var(--bad-soft); color: var(--bad); }
 </style>
 </head>
 <body>
@@ -93,8 +117,13 @@
         a question, something you want changed. His replies show up here.</p>
       <div class="thread" id="thread" aria-live="polite"><p class="dim">Loading…</p></div>
       <div class="field"><label for="msgText">Your message</label>
-        <textarea id="msgText" maxlength="4000" placeholder="Type your message"></textarea></div>
-      <p class="faint msgcount" id="msgCount">0 / 4000</p>
+        <textarea id="msgText" maxlength="4000" placeholder="Type your message, or paste a screenshot"></textarea></div>
+      <div class="msgtools">
+        <label class="attach">📎 Add screenshot
+          <input type="file" id="msgFiles" accept="image/*" multiple></label>
+        <p class="faint msgcount" id="msgCount">0 / 4000</p>
+      </div>
+      <div class="pending" id="msgPics" aria-label="Pictures to send"></div>
       <button class="btn" id="msgSend">Send</button>
       <p class="faint" id="msgNote" style="margin-top:10px"></p>
     </div>
@@ -447,7 +476,13 @@
       return;
     }
     thread.innerHTML = list.map(function (m) {
-      return '<div class="bubble ' + (m.direction === 'out' ? 'out' : 'in') + '">' + esc(m.body) +
+      // The Worker passes on only the hub's own picture links.
+      var pics = (m.images || []).filter(function (u) { return /^(https:\/\/|\/[^\/])/.test(String(u)); });
+      var shots = pics.length ? '<span class="shots">' + pics.map(function (u, i) {
+        return '<a href="' + esc(u) + '" target="_blank" rel="noopener noreferrer" title="Open full size">' +
+          '<img src="' + esc(u) + '" alt="Picture ' + (i + 1) + '" loading="lazy"></a>';
+      }).join('') + '</span>' : '';
+      return '<div class="bubble ' + (m.direction === 'out' ? 'out' : 'in') + '">' + esc(m.body) + shots +
         '<span class="when">' + (m.direction === 'out' ? 'Matt' : 'You') + ' &middot; ' + esc(when(m.created)) +
         '</span></div>';
     }).join('');
@@ -477,16 +512,130 @@
     msgCount.className = 'faint msgcount' + (n > MSG_MAX ? ' over' : '');
   }
 
+  // ---- screenshots
+  //
+  // Each picture is redrawn on a canvas, longest side 1600 px, as a JPEG at
+  // 0.82 before it goes anywhere: a phone photo or a 4K screenshot comes down
+  // to a few hundred KB, still sharp enough to read. Only the shrunk copy is
+  // sent, to this app's own Worker, never to the hub directly.
+  var PIC_MAX = 4;
+  var PIC_SIDE = 1600;
+  var PIC_QUALITY = 0.82;
+  var PIC_MAX_B64 = 3500000;            // the Worker's ceiling per picture
+  var pics = [];                        // { id, type, data, url }
+  var picsWorking = 0;
+  var picSeq = 0;
+  var msgFiles = document.getElementById('msgFiles');
+  var msgPics = document.getElementById('msgPics');
+
+  function drawPics() {
+    msgPics.innerHTML = pics.map(function (p, i) {
+      return '<span class="pend"><img src="' + esc(p.url) + '" alt="Screenshot ' + (i + 1) + ' to send">' +
+        '<button type="button" data-pic="' + p.id + '" aria-label="Remove screenshot ' + (i + 1) + '">✕</button></span>';
+    }).join('');
+  }
+
+  function shrink(file) {
+    return new Promise(function (resolve, reject) {
+      var src = URL.createObjectURL(file);
+      var img = new Image();
+      img.onload = function () {
+        var w = img.naturalWidth, h = img.naturalHeight;
+        URL.revokeObjectURL(src);
+        if (!w || !h) { reject(new Error('empty')); return; }
+        var k = Math.min(1, PIC_SIDE / Math.max(w, h));
+        var c = document.createElement('canvas');
+        c.width = Math.max(1, Math.round(w * k));
+        c.height = Math.max(1, Math.round(h * k));
+        var g = c.getContext('2d');
+        g.fillStyle = '#fff';                       // a JPEG has no see-through, so give PNGs a white page
+        g.fillRect(0, 0, c.width, c.height);
+        g.drawImage(img, 0, 0, c.width, c.height);
+        c.toBlob(function (blob) {
+          if (!blob) { reject(new Error('encode')); return; }
+          var fr = new FileReader();
+          fr.onload = function () {
+            var data = String(fr.result).split(',')[1] || '';
+            resolve({ type: 'image/jpeg', data: data, url: URL.createObjectURL(blob) });
+          };
+          fr.onerror = function () { reject(new Error('read')); };
+          fr.readAsDataURL(blob);
+        }, 'image/jpeg', PIC_QUALITY);
+      };
+      img.onerror = function () { URL.revokeObjectURL(src); reject(new Error('decode')); };
+      img.src = src;
+    });
+  }
+
+  function addPics(files) {
+    var list = Array.prototype.filter.call(files || [], function (f) { return /^image\//.test(f.type || ''); });
+    if (!list.length) { if (files && files.length) msgNote.textContent = 'That is not a picture.'; return; }
+    var room = PIC_MAX - pics.length - picsWorking;
+    if (room <= 0) { msgNote.textContent = 'Up to ' + PIC_MAX + ' pictures per message.'; return; }
+    if (list.length > room) msgNote.textContent = 'Up to ' + PIC_MAX + ' pictures per message, so only ' + room + ' more added.';
+    else msgNote.textContent = '';
+    list.slice(0, room).forEach(function (f) {
+      var n = ++picSeq;                             // numbered now, so they line up in the order picked
+      picsWorking++;
+      shrink(f).then(function (p) {
+        if (p.data.length > PIC_MAX_B64) { URL.revokeObjectURL(p.url); msgNote.textContent = 'One picture was too big even after shrinking.'; return; }
+        p.id = 'p' + n;
+        p.n = n;
+        pics.push(p);
+        pics.sort(function (a, b) { return a.n - b.n; });
+        drawPics();
+      }, function () {
+        msgNote.textContent = 'One file could not be opened as a picture.';
+      }).then(function () { picsWorking--; });
+    });
+  }
+
+  function clearPics() {
+    pics.forEach(function (p) { URL.revokeObjectURL(p.url); });
+    pics = [];
+    drawPics();
+  }
+
+  msgFiles.addEventListener('change', function () {
+    addPics(msgFiles.files);
+    msgFiles.value = '';                            // so picking the same file again still fires
+  });
+  msgPics.addEventListener('click', function (e) {
+    var b = e.target.closest ? e.target.closest('button[data-pic]') : null;
+    if (!b) return;
+    var id = b.getAttribute('data-pic');
+    pics = pics.filter(function (p) {
+      if (p.id === id) { URL.revokeObjectURL(p.url); return false; }
+      return true;
+    });
+    drawPics();
+  });
+  // Ctrl+V of a screenshot into the message box. Pasting text still pastes text.
+  msgText.addEventListener('paste', function (e) {
+    var items = (e.clipboardData && e.clipboardData.items) || [];
+    var files = [];
+    Array.prototype.forEach.call(items, function (it) {
+      if (it.kind === 'file' && /^image\//.test(it.type)) { var f = it.getAsFile(); if (f) files.push(f); }
+    });
+    if (!files.length) return;
+    e.preventDefault();
+    addPics(files);
+  });
+
   function sendMsg() {
     var text = msgText.value.trim();
-    if (!text) { msgNote.textContent = 'Write something first.'; return; }
+    if (picsWorking) { msgNote.textContent = 'Still getting the pictures ready. Try again in a second.'; return; }
+    if (!text && !pics.length) { msgNote.textContent = 'Write something or add a screenshot first.'; return; }
     if (text.length > MSG_MAX) { msgNote.textContent = 'That is over ' + MSG_MAX + ' characters. Trim it a little.'; return; }
+    var payload = { body: text };
+    if (pics.length) payload.images = pics.map(function (p) { return { type: p.type, data: p.data }; });
     msgSend.disabled = true;
-    msgNote.textContent = 'Sending…';
-    hubPost('/api/hub/send', { body: text })
+    msgNote.textContent = pics.length ? 'Sending (with ' + pics.length + (pics.length === 1 ? ' picture' : ' pictures') + ')…' : 'Sending…';
+    hubPost('/api/hub/send', payload)
       .then(function (res) {
         if (res.ok) {
           msgText.value = '';
+          clearPics();
           countMsg();
           msgNote.textContent = 'Sent to Matt.';
           refreshThread();

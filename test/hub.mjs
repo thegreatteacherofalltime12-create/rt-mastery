@@ -43,7 +43,9 @@ globalThis.fetch = async (u, o) => {
   const path = url.slice(HUB.length).split('?')[0];
   if (path === '/api/app/message' && call.method === 'POST') {
     const id = 'm' + (hub.thread.length + 1);
-    hub.thread.push({ id, direction: 'in', body: call.body.body, created: 1000 + hub.thread.length });
+    // Like the real hub: each picture stored, handed back later as a /img/ link.
+    const images = (call.body.images || []).map((_, i) => HUB + '/img/' + (id + 'x' + i).padEnd(32, '0'));
+    hub.thread.push({ id, direction: 'in', body: call.body.body, created: 1000 + hub.thread.length, images });
     return reply({ ok: true, id });
   }
   if (path === '/api/app/thread' && call.method === 'GET') {
@@ -135,8 +137,105 @@ const ids = (th.j.messages || []).map((m) => m.id).join(',');
 check('the thread is oldest first', ids === 'm1,m2,r1', ids);
 const last = (th.j.messages || [])[2] || {};
 check('Matt\'s reply is marked out', last.direction === 'out' && last.body === 'On it - fixed tonight.', JSON.stringify(last));
-check('each message has only id, direction, body, created',
-      (th.j.messages || []).every((m) => JSON.stringify(Object.keys(m).sort()) === '["body","created","direction","id"]'));
+check('each message has only id, direction, body, created, images',
+      (th.j.messages || []).every((m) => JSON.stringify(Object.keys(m).sort()) === '["body","created","direction","id","images"]'));
+check('a message with no pictures has an empty images list',
+      (th.j.messages || []).every((m) => Array.isArray(m.images) && m.images.length === 0));
+
+// ---------------------------------------------------------------------------
+// Screenshots: passed to the hub exactly as sent, behind the same PIN.
+// ---------------------------------------------------------------------------
+// A real 1x1 PNG and a few bytes of JPEG header; the Worker never decodes them.
+const PNG = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8DwHwAFBQIAX8jx0gAAAABJRU5ErkJggg==';
+const JPG = '/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAgGBgcGBQgHBwcJCQgKDBQNDAsLDBkSEw8UHR8eHR0aHBwgJC4nICIsIxwcKDcpLDAxNDQ0Hyc5PTgyPC4zNDL/';
+const shots = [{ type: 'image/png', data: PNG }, { type: 'image/jpeg', data: JPG }];
+
+hub.calls.length = 0;
+const withPics = await call('/api/hub/send', { pin: PIN, body: 'See the timer here.', images: shots });
+check('a message with pictures is sent', withPics.status === 200 && withPics.j.ok === true, JSON.stringify(withPics.j));
+const pc = hub.calls[0] || {};
+check('pictures make one call to the hub', hub.calls.length === 1, hub.calls.length + ' call(s)');
+check('the picture body is senderId, senderName, body, link, images',
+      JSON.stringify(Object.keys(pc.body || {}).sort()) === '["body","images","link","senderId","senderName"]',
+      JSON.stringify(Object.keys(pc.body || {})));
+check('the pictures reach the hub unchanged', JSON.stringify(pc.body && pc.body.images) === JSON.stringify(shots),
+      JSON.stringify(pc.body && pc.body.images));
+check('the picture send carries the Bearer key', pc.auth === 'Bearer ' + KEY, 'got ' + pc.auth);
+check('the PIN is not forwarded with pictures', !JSON.stringify(pc.body).includes('"pin"'));
+
+hub.calls.length = 0;
+const extraKeys = await call('/api/hub/send', { pin: PIN, body: 'x',
+  images: [{ type: 'image/png', data: PNG, name: 'C:\\Users\\jess\\Desktop\\shot.png', pin: PIN }] });
+check('a picture with extra fields still sends', extraKeys.status === 200, 'got ' + extraKeys.status);
+check('only type and data are passed on for each picture',
+      JSON.stringify((hub.calls[0] || {}).body && hub.calls[0].body.images) === JSON.stringify([{ type: 'image/png', data: PNG }]),
+      JSON.stringify((hub.calls[0] || {}).body && hub.calls[0].body.images));
+
+hub.calls.length = 0;
+const picOnly = await call('/api/hub/send', { pin: PIN, body: '   ', images: [shots[1]] });
+check('a picture with no words is allowed', picOnly.status === 200 && picOnly.j.ok === true, JSON.stringify(picOnly.j));
+const po = (hub.calls[0] || {}).body || {};
+check('a picture-only message forwards an empty body and the picture',
+      po.body === '' && JSON.stringify(po.images) === JSON.stringify([shots[1]]), JSON.stringify(po));
+
+hub.calls.length = 0;
+const picBadPin = await call('/api/hub/send', { pin: '9999', body: 'x', images: shots });
+check('pictures with the wrong PIN are refused', picBadPin.status === 401, 'got ' + picBadPin.status);
+const picNoPin = await call('/api/hub/send', { images: shots });
+check('pictures with no PIN are refused', picNoPin.status === 401, 'got ' + picNoPin.status);
+const five = await call('/api/hub/send', { pin: PIN, body: 'x', images: [shots[0], shots[0], shots[0], shots[0], shots[0]] });
+check('five pictures are refused', five.status === 400 && /4/.test(five.j.error || ''), JSON.stringify(five.j));
+const gif = await call('/api/hub/send', { pin: PIN, body: 'x', images: [{ type: 'image/gif', data: PNG }] });
+check('a GIF is refused', gif.status === 400 && /JPEG, PNG or WebP/.test(gif.j.error || ''), JSON.stringify(gif.j));
+const svg = await call('/api/hub/send', { pin: PIN, body: 'x', images: [{ type: 'image/svg+xml', data: PNG }] });
+check('an SVG is refused', svg.status === 400, 'got ' + svg.status);
+const upper = await call('/api/hub/send', { pin: PIN, body: 'x', images: [{ type: 'IMAGE/PNG', data: PNG }] });
+check('a type outside the exact three is refused', upper.status === 400, 'got ' + upper.status);
+const noType = await call('/api/hub/send', { pin: PIN, body: 'x', images: [{ data: PNG }] });
+check('a picture with no type is refused', noType.status === 400, 'got ' + noType.status);
+const noData = await call('/api/hub/send', { pin: PIN, body: 'x', images: [{ type: 'image/png', data: '' }] });
+check('a picture with no data is refused', noData.status === 400, 'got ' + noData.status);
+const notList = await call('/api/hub/send', { pin: PIN, body: 'x', images: { type: 'image/png', data: PNG } });
+check('pictures not sent as a list are refused', notList.status === 400, 'got ' + notList.status);
+const big = await call('/api/hub/send', { pin: PIN, body: 'x', images: [{ type: 'image/jpeg', data: 'A'.repeat(3_500_001) }] });
+check('a picture over 3.5 MB of base64 is refused', big.status === 413 && /too big/.test(big.j.error || ''), JSON.stringify(big.j));
+const huge = await worker.fetch(new Request(BASE + '/api/hub/send', {
+  method: 'POST', headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({ pin: PIN, body: 'x', images: [], pad: 'z'.repeat(15_000_000) })
+}), env);
+check('a request past the route\'s size ceiling is refused', huge.status === 413, 'got ' + huge.status);
+check('refused pictures never reach the hub', hub.calls.length === 0, hub.calls.length + ' call(s)');
+
+hub.calls.length = 0;
+const fullB64 = 'A'.repeat(3_500_000);
+const four = await call('/api/hub/send', { pin: PIN, body: '', images: [0, 1, 2, 3].map(() => ({ type: 'image/webp', data: fullB64 })) });
+check('four pictures at the ceiling fit the route\'s size limit', four.status === 200, 'got ' + four.status + ' ' + JSON.stringify(four.j));
+check('all four reach the hub', ((hub.calls[0] || {}).body || {}).images && hub.calls[0].body.images.length === 4);
+
+hub.next = () => reply({ error: 'That picture is too big (2.5 MB at most).' }, 413);
+const hubBig = await call('/api/hub/send', { pin: PIN, body: '', images: [shots[1]] });
+check('the hub\'s own picture refusal passes through in words',
+      hubBig.status === 413 && /too big/.test(hubBig.j.error || ''), JSON.stringify(hubBig.j));
+
+// The pictures come back as the hub's links, on her messages and Matt's.
+hub.thread.push({ id: 'r2', direction: 'out', body: '', created: 9000,
+                  images: [HUB + '/img/' + 'R'.repeat(32), 'https://evil.example/img/' + 'E'.repeat(32), 'javascript:alert(1)', 42] });
+hub.calls.length = 0;
+const th2 = await call('/api/hub/thread', { pin: PIN });
+check('the thread still reads with pictures in it', th2.status === 200, 'got ' + th2.status);
+const byId = Object.fromEntries((th2.j.messages || []).map((m) => [m.id, m]));
+const withPicsMsg = byId[withPics.j.id] || {};
+check('her pictures come back as hub links',
+      Array.isArray(withPicsMsg.images) && withPicsMsg.images.length === 2 &&
+      withPicsMsg.images.every((u) => u.startsWith(HUB + '/img/')), JSON.stringify(withPicsMsg.images));
+const picOnlyMsg = byId[picOnly.j.id] || {};
+check('a picture-only message comes back with its picture and no words',
+      picOnlyMsg.body === '' && (picOnlyMsg.images || []).length === 1, JSON.stringify(picOnlyMsg));
+const r2 = byId.r2 || {};
+check('Matt\'s pictures come back too', JSON.stringify(r2.images) === JSON.stringify([HUB + '/img/' + 'R'.repeat(32)]),
+      JSON.stringify(r2.images));
+check('links that are not the hub\'s own /img/ never reach the page',
+      (th2.j.messages || []).every((m) => m.images.every((u) => /^https:\/\/matt-hub\.prior-mixed-theme\.workers\.dev\/img\/[A-Za-z0-9]+$/.test(u))));
 
 // ---------------------------------------------------------------------------
 // No HUB_KEY: a clear 503, never a crash and never a call.

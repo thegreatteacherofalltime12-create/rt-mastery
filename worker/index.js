@@ -4,7 +4,7 @@
  * Serves the static game and provides two endpoints:
  *   POST /api/progress          student progress upsert (one batched write per round)
  *   GET  /api/class?code=&pin=  instructor roster view, gated by INSTRUCTOR_PIN
- *   POST /api/hub/send          instructor message to Matt's Admin Hub, gated by the same PIN
+ *   POST /api/hub/send          instructor message (and up to 4 screenshots) to Matt's Admin Hub, gated by the same PIN
  *   POST /api/hub/thread        that conversation, Matt's replies included
  *
  * Firestore is reached with a Google service account signed in-Worker (RS256
@@ -413,6 +413,18 @@ const HUB_TIMEOUT_MS = 8000;
 // the hub files the thread under; changing it would start her a fresh thread.
 const HUB_SENDER = { id: 'instructor', name: 'Jess' };
 
+// Screenshots. The dashboard shrinks each one (longest side 1600 px, JPEG)
+// before sending, so a real one is a few hundred KB; these are ceilings, not
+// targets. The hub checks the decoded bytes itself (2.5 MB each); this Worker
+// only refuses what could never pass, so nothing hopeless is sent on.
+const HUB_MAX_IMAGES = 4;
+const HUB_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
+const HUB_MAX_IMAGE_B64 = 3_500_000;                          // characters of base64 per picture
+// Only /api/hub/send reads this much. Every other route keeps request.json().
+const HUB_SEND_MAX_JSON = HUB_MAX_IMAGES * HUB_MAX_IMAGE_B64 + 64_000;
+// The only picture links passed back to the page: the hub's own /img/ route.
+const HUB_IMG_RE = /^https:\/\/matt-hub\.prior-mixed-theme\.workers\.dev\/img\/[A-Za-z0-9]{1,64}$/;
+
 const HUB_NOT_CONNECTED = {
   error: 'not connected yet',
   detail: 'Messaging is not connected yet. Matt still has to set HUB_KEY on this Worker (DEPLOY.md).'
@@ -436,32 +448,70 @@ async function hubCall(env, path, init) {
   if (res.status === 401) {
     return { error: json({ error: 'The message hub did not recognise this app. Matt needs to check its HUB_KEY.' }, 502) };
   }
-  if (res.status === 400 || res.status === 429) {
+  if (res.status === 400 || res.status === 413 || res.status === 429) {
     return { error: json({ error: String(j.error || 'The message hub turned that message down.') }, res.status) };
   }
   return { error: json({ error: `The message hub had a problem (status ${res.status}). Try again later.` }, 502) };
 }
 
+const HUB_TOO_BIG = { error: 'Those pictures are too big to send together. Try fewer at a time.' };
+
+// Pictures as the hub takes them: [{type, data}], passed on exactly as sent.
+// Returns { images } or { error } (a Response).
+function hubImages(raw) {
+  if (raw === undefined || raw === null) return { images: [] };
+  if (!Array.isArray(raw)) return { error: json({ error: 'The pictures were not sent as a list.' }, 400) };
+  if (raw.length > HUB_MAX_IMAGES) {
+    return { error: json({ error: `Up to ${HUB_MAX_IMAGES} pictures per message.` }, 400) };
+  }
+  const images = [];
+  for (const item of raw) {
+    const type = item && item.type;
+    const data = item && item.data;
+    if (!HUB_IMAGE_TYPES.includes(type)) {
+      return { error: json({ error: 'Pictures must be JPEG, PNG or WebP.' }, 400) };
+    }
+    if (typeof data !== 'string' || !data) return { error: json({ error: 'A picture came through empty.' }, 400) };
+    if (data.length > HUB_MAX_IMAGE_B64) return { error: json({ error: 'That picture is too big (2.5 MB at most).' }, 413) };
+    images.push({ type, data });
+  }
+  return { images };
+}
+
 async function handleHubSend(request, env) {
+  // The one route that carries pictures, so the one route with a bigger
+  // ceiling. Read as text so the ceiling holds even without a Content-Length.
+  const declared = Number(request.headers.get('Content-Length') || 0);
+  if (declared > HUB_SEND_MAX_JSON) return json(HUB_TOO_BIG, 413);
+  let raw;
+  try { raw = await request.text(); } catch { return json({ error: 'invalid json' }, 400); }
+  if (raw.length > HUB_SEND_MAX_JSON) return json(HUB_TOO_BIG, 413);
   let body;
-  try { body = await request.json(); } catch { return json({ error: 'invalid json' }, 400); }
+  try { body = JSON.parse(raw); } catch { return json({ error: 'invalid json' }, 400); }
+  if (!body || typeof body !== 'object') return json({ error: 'invalid json' }, 400);
 
   const pin = body.pin || '';
   if (!env.INSTRUCTOR_PIN || pin !== env.INSTRUCTOR_PIN) return json({ error: 'invalid pin' }, 401);
   if (!env.HUB_KEY) return json(HUB_NOT_CONNECTED, 503);
 
+  const pics = hubImages(body.images);
+  if (pics.error) return pics.error;
+
   const text = String(body.body == null ? '' : body.body).trim();
-  if (!text) return json({ error: 'The message is empty.' }, 400);
+  // A screenshot on its own is a whole message.
+  if (!text && !pics.images.length) return json({ error: 'The message is empty.' }, 400);
   // Refused, not trimmed: a message quietly cut short reads as though she
   // stopped there.
   if (text.length > HUB_MAX) {
     return json({ error: `That message is ${text.length} characters. The limit is ${HUB_MAX}.` }, 400);
   }
 
+  const forward = { senderId: HUB_SENDER.id, senderName: HUB_SENDER.name, body: text, link: HUB_LINK };
+  if (pics.images.length) forward.images = pics.images;
   const out = await hubCall(env, '/api/app/message', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ senderId: HUB_SENDER.id, senderName: HUB_SENDER.name, body: text, link: HUB_LINK })
+    body: JSON.stringify(forward)
   });
   if (out.error) return out.error;
   return json({ ok: true, id: out.j.id || null });
@@ -484,7 +534,10 @@ async function handleHubThread(request, env) {
       id: String(m.id || ''),
       direction: m.direction === 'out' ? 'out' : 'in',
       body: String(m.body || ''),
-      created: Number(m.created) || 0
+      created: Number(m.created) || 0,
+      // Only the hub's own picture links reach the page, never anything else.
+      images: (Array.isArray(m.images) ? m.images : [])
+        .filter((u) => typeof u === 'string' && HUB_IMG_RE.test(u)).slice(0, HUB_MAX_IMAGES)
     }))
     .sort((a, b) => a.created - b.created);
   return json({ ok: true, messages });

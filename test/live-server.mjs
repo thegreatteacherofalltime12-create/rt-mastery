@@ -36,6 +36,12 @@ fs.install();                                   // left installed: the Worker ne
 // Every message gets one canned reply, so both sides of the thread show.
 const HUB = 'https://matt-hub.prior-mixed-theme.workers.dev';
 const hubThread = [];
+// Pictures kept in memory like the hub's KV. The thread hands back the real
+// hub's /img/ links (so the Worker's link filter is exercised for real), and
+// this server rewrites them to /fake-hub/img/ on the way to the browser, so the
+// page never fetches anything from the live hub.
+const hubPics = new Map();
+let hubPicSeq = 0;
 const viaFirestore = globalThis.fetch;
 globalThis.fetch = async (u, o) => {
   const url = String(u);
@@ -45,10 +51,18 @@ globalThis.fetch = async (u, o) => {
   if (url.startsWith(HUB + '/api/app/message')) {
     const b = JSON.parse((o && o.body) || '{}');
     const now = Date.now();
-    hubThread.push({ id: 'in' + now, direction: 'in', body: b.body, created: now });
-    hubThread.push({ id: 'out' + now, direction: 'out', created: now + 1,
+    const images = (b.images || []).map((p) => {
+      const id = ('fake' + (++hubPicSeq)).padEnd(32, '0');
+      hubPics.set(id, { type: p.type, buf: Buffer.from(p.data, 'base64') });
+      return HUB + '/img/' + id;
+    });
+    hubThread.push({ id: 'in' + now, direction: 'in', body: b.body, created: now, images });
+    // The canned reply sends her first picture back, so Matt's side shows one too.
+    hubThread.push({ id: 'out' + now, direction: 'out', created: now + 1, images: images.slice(0, 1),
                      body: 'Fake hub reply: this is the local test server, nothing left this computer.' });
-    console.log(`  [hub] ${b.senderName} (${b.senderId}): ${String(b.body).slice(0, 60)}`);
+    console.log(`  [hub] ${b.senderName} (${b.senderId}): ${String(b.body).slice(0, 60)}` +
+                (images.length ? ` + ${images.length} picture(s), ` +
+                  images.map((x) => hubPics.get(x.slice(-32)).buf.length).join('/') + ' bytes' : ''));
     return answer({ ok: true, id: 'in' + now });
   }
   if (url.startsWith(HUB + '/api/app/thread')) return answer({ messages: hubThread.slice().reverse() });
@@ -81,10 +95,19 @@ http.createServer(async (req, res) => {
       body
     }), env);
 
-    const text = await wres.text();
+    let text = await wres.text();
+    if (url.pathname === '/api/hub/thread') text = text.split(HUB + '/img/').join('/fake-hub/img/');
     res.writeHead(wres.status, { 'Content-Type': 'application/json; charset=utf-8' });
     res.end(text);
     console.log(`  ${req.method} ${url.pathname} -> ${wres.status}`);
+    return;
+  }
+
+  if (url.pathname.startsWith('/fake-hub/img/')) {
+    const pic = hubPics.get(url.pathname.slice('/fake-hub/img/'.length));
+    if (!pic) { res.writeHead(404); res.end('not found'); return; }
+    res.writeHead(200, { 'Content-Type': pic.type, 'X-Content-Type-Options': 'nosniff' });
+    res.end(pic.buf);
     return;
   }
 
