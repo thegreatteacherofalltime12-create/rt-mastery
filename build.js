@@ -6,6 +6,7 @@
  */
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 
 // The Walk-Through floor plan. One source of truth: the projector and the
 // phone both draw this, and the Worker only ever deals in indices, so the
@@ -353,8 +354,16 @@ function build() {
     questions: c.questions.map(({ flag, ...q }) => q)
   }));
 
-  const payload = { chapters: shipped, exams, areas: WALK_AREAS, barriers: WALK_BARRIERS,
-                    builtAt: new Date().toISOString() };
+  // An id derived from what ships, not a timestamp. `builtAt: new Date()` used
+  // to sit here. Nothing ever read it, and it changed the bundle on every
+  // build - so every deploy re-uploaded content.js and standalone.html and the
+  // "2 new or modified assets" line told you nothing about whether the content
+  // had actually moved. A hash moves only when the content does, which makes
+  // the build byte-reproducible and that line worth reading.
+  const body = { chapters: shipped, exams, areas: WALK_AREAS, barriers: WALK_BARRIERS };
+  const payload = Object.assign({}, body, {
+    contentId: crypto.createHash('sha256').update(JSON.stringify(body)).digest('hex').slice(0, 12)
+  });
   const contentJS = 'window.RT_CONTENT=' + JSON.stringify(payload) + ';';
 
   fs.writeFileSync(path.join(DIST, 'content.js'), contentJS);
