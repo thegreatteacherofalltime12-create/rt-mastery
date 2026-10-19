@@ -629,7 +629,15 @@ const CLASS_GUESS = 10;                   // placeholder class size, until start
 // for twenty-five. So the building is sized to the class too, from the same
 // headcount, and bounded by how many areas the CLIENT can actually name.
 const WALK_MAX_AREAS = 90;
+const WALK_BARRIER_FLOOR = 4;             // ...but never so few that luck sets the length
 const WALK_BARRIER_RATE = 5;              // about one barrier in every five areas
+// A floor, for the same reason clearCap has one. The rate alone gave a class of
+// two a SINGLE barrier in a six-area building, and the round ends when the last
+// barrier is found - so the whole length of the round was where that one
+// barrier happened to land: anywhere from one survey to six. Half the time a
+// two-person round was over before each of them had surveyed twice. Four is the
+// smallest floor that cannot end a six-area round early, and it binds only for
+// classes under eight; at ten students and up the rate is already higher.
 // The layout is drawn HERE, server-side. A client cannot influence it and
 // cannot read it. Lifted out of newState because start redraws it: the board
 // is not sized until the room knows how many students turned up.
@@ -654,7 +662,7 @@ function walkSize(cfg, heads) {
   const areas = Math.min(maxAreas, Math.max(6, Math.ceil((cfg.each || 3) * heads)));
   return {
     areas: areas,
-    barriers: Math.min(24, Math.max(1, Math.round(areas / WALK_BARRIER_RATE)))
+    barriers: Math.min(24, Math.max(WALK_BARRIER_FLOOR, Math.round(areas / WALK_BARRIER_RATE)))
   };
 }
 const MAX_SHARE = 0.6;                    // never more than this share of the whole round

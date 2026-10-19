@@ -15,13 +15,17 @@
  *   node test/classsize.mjs
  */
 
-import { makeFirestore, testEnv } from './fake-firestore.mjs';
+import { makeFirestore, testEnv, seedRandom } from './fake-firestore.mjs';
 
 const BASE = 'https://rt.test';
 const CLASS = 'rt101';
 const PIN = '1234';
 const EACH = 4;                 // answers per student the instructor asked for
 const SIZES = [2, 10, 25, 40];  // a tiny room, the old class, the new one, and bigger
+
+// Fixed board layouts. The assertions below are about the SHAPE of a round,
+// so the round has to be the same round every run.
+seedRandom(20261018);
 
 const fs = makeFirestore();
 const env = testEnv();
@@ -173,7 +177,7 @@ for (const size of [2, 10, 25, 40]) {
     'areas ' + w.areas + ' for ' + size + ' students at 3 each');
 
   check('a class of ' + size + ' gets barriers in proportion to the building',
-    w.barriers === Math.min(24, Math.max(1, Math.round(w.areas / 5))),
+    w.barriers === Math.min(24, Math.max(4, Math.round(w.areas / 5))),
     'barriers ' + w.barriers + ' in ' + w.areas + ' areas');
 
   // The regression: a round that is over before most of the class has answered.

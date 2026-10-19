@@ -88,6 +88,27 @@ function setAt(obj, parts, value) {
 
 // ---------------------------------------------------------------- the fake
 
+// Deterministic randomness, OPT-IN. drawPlan draws the Walk-Through board from
+// crypto.getRandomValues, so an unseeded run sweeps a different building every
+// time - which is how a one-barrier board turned the class-size suite into a
+// coin flip that passed twice and failed on the third run. A test asserting on
+// board SHAPE seeds this first. live-server deliberately does not, so a mock
+// round still gets a fresh building every time it is played.
+export function seedRandom(seed) {
+  const real = crypto.getRandomValues.bind(crypto);
+  let s = (seed >>> 0) || 0x9e3779b9;
+  crypto.getRandomValues = (arr) => {
+    for (let i = 0; i < arr.length; i++) {
+      s ^= s << 13; s >>>= 0;
+      s ^= s >>> 17;
+      s ^= s << 5;  s >>>= 0;
+      arr[i] = s;                    // truncates for Uint8Array, which is fine
+    }
+    return arr;
+  };
+  return () => { crypto.getRandomValues = real; };
+}
+
 export function makeFirestore() {
   /** docPath -> plain JS object */
   const docs = new Map();
