@@ -36,6 +36,33 @@
              font-weight: 650; cursor: pointer; text-align: left;
              border-bottom: 1px dotted var(--line); }
   .linkbtn:hover { color: var(--accent-lit); border-bottom-color: var(--accent); }
+
+  /* The tabs only appear once the server has accepted her PIN, so nobody who
+     opens this page without it sees there is a line to Matt at all. */
+  .tabrow { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+  .tab { font: inherit; font-size: 0.9rem; font-weight: 650; padding: 10px 14px;
+         border-radius: var(--r-sm); border: 1px solid var(--line);
+         background: var(--card); color: var(--text-dim); cursor: pointer; }
+  .tab:hover { background: var(--card-hi); color: var(--text); }
+  .tab.on { border-color: var(--accent); background: var(--accent-soft); color: var(--accent-lit); }
+  :root[data-theme="light"] .tab.on { color: var(--accent); }
+
+  /* Message Project Manager. Hers on the right, Matt's on the left - the way
+     every phone she owns already draws a conversation. */
+  .thread { display: flex; flex-direction: column; gap: 8px; margin: 4px 0 14px;
+            max-height: 55vh; overflow-y: auto; -webkit-overflow-scrolling: touch; }
+  .bubble { max-width: 85%; padding: 9px 12px; border-radius: 12px; font-size: 0.92rem;
+            border: 1px solid var(--line); background: var(--bg-soft);
+            white-space: pre-wrap; overflow-wrap: anywhere; }
+  .bubble.in { align-self: flex-end; background: var(--accent-soft); border-color: var(--accent); }
+  .bubble.out { align-self: flex-start; }
+  .bubble .when { display: block; margin-top: 3px; font-size: 0.72rem; color: var(--text-faint); }
+  .field textarea { width: 100%; min-height: 104px; resize: vertical; font-family: inherit;
+                    font-size: 1rem; padding: 13px 14px; border-radius: 11px;
+                    border: 1px solid var(--line); background: var(--bg-soft); color: var(--text); }
+  .field textarea:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+  .msgcount { text-align: right; margin: -8px 0 10px; }
+  .msgcount.over { color: var(--bad); }
 </style>
 </head>
 <body>
@@ -52,13 +79,34 @@
     <p class="faint" style="margin-top:10px">The PIN is set with <code>wrangler secret put INSTRUCTOR_PIN</code>. It is checked on the server — students cannot see this data.</p>
   </div>
 
+  <div class="tabrow" id="tabs" role="tablist" style="display:none">
+    <button class="tab on" role="tab" aria-selected="true" data-tab="class">Class</button>
+    <button class="tab" role="tab" aria-selected="false" data-tab="msg">Message Project Manager</button>
+  </div>
+
   <div id="out"></div>
+
+  <div id="msgPane" style="display:none">
+    <div class="card">
+      <h3>Message Project Manager</h3>
+      <p class="faint" style="margin-top:-4px">Goes straight to Matt, who looks after this app &mdash; a bug,
+        a question, something you want changed. His replies show up here.</p>
+      <div class="thread" id="thread" aria-live="polite"><p class="dim">Loading…</p></div>
+      <div class="field"><label for="msgText">Your message</label>
+        <textarea id="msgText" maxlength="4000" placeholder="Type your message"></textarea></div>
+      <p class="faint msgcount" id="msgCount">0 / 4000</p>
+      <button class="btn" id="msgSend">Send</button>
+      <p class="faint" id="msgNote" style="margin-top:10px"></p>
+    </div>
+  </div>
 </div>
 
 <script>
 (function () {
   'use strict';
   var out = document.getElementById('out');
+  var tabs = document.getElementById('tabs');
+  var msgPane = document.getElementById('msgPane');
 
   function esc(s) {
     return String(s == null ? '' : s)
@@ -112,9 +160,10 @@
     out.innerHTML = '<div class="card dim">Loading…</div>';
 
     fetch('/api/class?code=' + encodeURIComponent(code) + '&pin=' + encodeURIComponent(pin))
-      .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, j: j }; }); })
+      .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, status: r.status, j: j }; }); })
       .then(function (res) {
         if (!res.ok) {
+          if (res.status === 401) lockTabs();
           out.innerHTML = '<div class="card"><h3>Could not load</h3><p class="dim">' +
             esc(res.j.error || 'Unknown error') + '</p>' +
             (res.j.detail ? '<p class="faint">' + esc(res.j.detail) + '</p>' : '') +
@@ -122,6 +171,7 @@
           return;
         }
         render(res.j);
+        tabs.style.display = '';
         try { sessionStorage.setItem('rt-dash', JSON.stringify({ code: code, pin: pin })); } catch (e) {}
       })
       .catch(function () {
@@ -321,6 +371,142 @@
     return String(s || '').toLowerCase().trim()
       .replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60);
   }
+
+  // ------------------------------------------------ Message Project Manager
+  //
+  // Everything goes through this app's own Worker with her PIN; the Worker
+  // holds the hub's key and the browser never sees it. Nothing here touches
+  // Firestore, so refreshing the thread costs the free tier nothing.
+  var MSG_MAX = 4000;
+  var MSG_POLL_MS = 45000;
+  var msgTimer = null;
+  var msgBusy = false;
+  var msgSeen = '';
+  var thread = document.getElementById('thread');
+  var msgText = document.getElementById('msgText');
+  var msgSend = document.getElementById('msgSend');
+  var msgNote = document.getElementById('msgNote');
+  var msgCount = document.getElementById('msgCount');
+
+  function showTab(name) {
+    Array.prototype.forEach.call(tabs.querySelectorAll('[data-tab]'), function (b) {
+      var on = b.getAttribute('data-tab') === name;
+      b.className = 'tab' + (on ? ' on' : '');
+      b.setAttribute('aria-selected', on ? 'true' : 'false');
+    });
+    out.style.display = name === 'class' ? '' : 'none';
+    msgPane.style.display = name === 'msg' ? '' : 'none';
+    clearInterval(msgTimer);
+    msgTimer = null;
+    if (name === 'msg') {
+      refreshThread();
+      // Polls only while the tab is open AND the page is in front of her: a
+      // dashboard left in a background tab all afternoon asks nothing.
+      msgTimer = setInterval(function () {
+        if (document.visibilityState === 'visible') refreshThread();
+      }, MSG_POLL_MS);
+    }
+  }
+
+  // A rejected PIN takes the tabs away again, so a wrong PIN never shows them.
+  function lockTabs() {
+    showTab('class');
+    tabs.style.display = 'none';
+  }
+
+  function hubPost(path, extra) {
+    return fetch(path, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(Object.assign({ pin: document.getElementById('pin').value }, extra || {}))
+    }).then(function (r) {
+      return r.json().catch(function () { return {}; })
+        .then(function (j) { return { ok: r.ok, status: r.status, j: j }; });
+    });
+  }
+
+  function hubError(j) {
+    if (j.error === 'invalid pin') return 'Your PIN was not accepted. Re-enter it above and load the class again.';
+    return (j.detail || j.error || 'Something went wrong.');
+  }
+
+  function when(ms) {
+    var d = new Date(ms);
+    if (!ms || isNaN(d)) return '';
+    return d.toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+  }
+
+  function drawThread(list) {
+    // Redrawn only when something changed, so a poll never yanks her scroll
+    // position out from under her while she is reading back.
+    var sig = list.map(function (m) { return m.id; }).join(',');
+    if (sig === msgSeen && thread.getAttribute('data-ok')) return;
+    msgSeen = sig;
+    thread.setAttribute('data-ok', '1');
+    if (!list.length) {
+      thread.innerHTML = '<p class="dim">Nothing here yet. Anything you send goes straight to Matt.</p>';
+      return;
+    }
+    thread.innerHTML = list.map(function (m) {
+      return '<div class="bubble ' + (m.direction === 'out' ? 'out' : 'in') + '">' + esc(m.body) +
+        '<span class="when">' + (m.direction === 'out' ? 'Matt' : 'You') + ' &middot; ' + esc(when(m.created)) +
+        '</span></div>';
+    }).join('');
+    thread.scrollTop = thread.scrollHeight;
+  }
+
+  function threadError(text) {
+    msgSeen = '';
+    thread.removeAttribute('data-ok');
+    thread.innerHTML = '<p class="dim">' + esc(text) + '</p>';
+  }
+
+  function refreshThread() {
+    if (msgBusy) return;
+    msgBusy = true;
+    hubPost('/api/hub/thread')
+      .then(function (res) {
+        if (res.ok) drawThread(res.j.messages || []);
+        else threadError(hubError(res.j));
+      }, function () { threadError('Could not reach the server. It will try again shortly.'); })
+      .then(function () { msgBusy = false; });
+  }
+
+  function countMsg() {
+    var n = msgText.value.trim().length;
+    msgCount.textContent = n + ' / ' + MSG_MAX;
+    msgCount.className = 'faint msgcount' + (n > MSG_MAX ? ' over' : '');
+  }
+
+  function sendMsg() {
+    var text = msgText.value.trim();
+    if (!text) { msgNote.textContent = 'Write something first.'; return; }
+    if (text.length > MSG_MAX) { msgNote.textContent = 'That is over ' + MSG_MAX + ' characters. Trim it a little.'; return; }
+    msgSend.disabled = true;
+    msgNote.textContent = 'Sending…';
+    hubPost('/api/hub/send', { body: text })
+      .then(function (res) {
+        if (res.ok) {
+          msgText.value = '';
+          countMsg();
+          msgNote.textContent = 'Sent to Matt.';
+          refreshThread();
+        } else msgNote.textContent = 'Not sent: ' + hubError(res.j);
+      }, function () { msgNote.textContent = 'Not sent: could not reach the server. Your message is still in the box.'; })
+      .then(function () { msgSend.disabled = false; });
+  }
+
+  Array.prototype.forEach.call(tabs.querySelectorAll('[data-tab]'), function (b) {
+    b.onclick = function () { showTab(b.getAttribute('data-tab')); };
+  });
+  msgSend.onclick = sendMsg;
+  msgText.addEventListener('input', countMsg);
+  msgText.addEventListener('keydown', function (e) {
+    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) sendMsg();
+  });
+  // Back in front after a while away: catch up at once rather than on the next tick.
+  document.addEventListener('visibilitychange', function () {
+    if (document.visibilityState === 'visible' && msgTimer) refreshThread();
+  });
 
   document.getElementById('go').onclick = load;
   document.getElementById('pin').addEventListener('keydown', function (e) {

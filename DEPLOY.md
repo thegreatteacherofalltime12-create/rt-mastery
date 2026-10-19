@@ -61,6 +61,18 @@ newlines and the `\n` escapes that appear in the JSON file.
 `INSTRUCTOR_PIN` is whatever you choose — it gates the dashboard. Pick something that is not the
 class code.
 
+One more, for the dashboard's **Message Project Manager** tab (the instructor's line to Matt's
+Admin Hub):
+
+```bash
+npx wrangler secret put HUB_KEY
+```
+
+Paste this app's project key from the Admin Hub's own setup. It stays on the Worker: the dashboard
+talks only to this Worker, which checks the instructor PIN and then calls the hub itself. Until it
+is set, the tab says "not connected yet" and everything else works as before. The tab costs no
+Firestore reads or writes.
+
 ---
 
 ## 3. Deploy
@@ -117,7 +129,11 @@ Create a `.dev.vars` file (already gitignored) for local secrets:
 FIREBASE_CLIENT_EMAIL=...
 FIREBASE_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----\n"
 INSTRUCTOR_PIN=1234
+HUB_KEY=...
 ```
+
+`node test/live-server.mjs` needs none of this: it runs the real Worker against a fake Firestore
+and a fake Admin Hub, so the dashboard and its message tab can be tried with PIN `1234`.
 
 ---
 
@@ -146,6 +162,10 @@ lines.
 
 **Dashboard says `invalid pin`** — `INSTRUCTOR_PIN` was never set, or was set on a different Worker.
 Re-run `wrangler secret put INSTRUCTOR_PIN` then `npm run deploy`.
+
+**Message tab says `not connected yet`** — `HUB_KEY` was never set on this Worker. Run
+`wrangler secret put HUB_KEY`. If it says the hub "did not recognise this app", the key is set but
+does not match the one the Admin Hub holds for RT Mastery.
 
 **Students' progress is not appearing** — they must enter a class code on the welcome screen, and it
 must match the one you type into the dashboard. Codes are normalised to lowercase with dashes, so

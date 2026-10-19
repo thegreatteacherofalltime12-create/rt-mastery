@@ -4,6 +4,8 @@
  * Serves the static game and provides two endpoints:
  *   POST /api/progress          student progress upsert (one batched write per round)
  *   GET  /api/class?code=&pin=  instructor roster view, gated by INSTRUCTOR_PIN
+ *   POST /api/hub/send          instructor message to Matt's Admin Hub, gated by the same PIN
+ *   POST /api/hub/thread        that conversation, Matt's replies included
  *
  * Firestore is reached with a Google service account signed in-Worker (RS256
  * via Web Crypto), so no key material ever reaches the browser.
@@ -13,6 +15,8 @@
  *   FIREBASE_CLIENT_EMAIL   ...@....iam.gserviceaccount.com
  *   FIREBASE_PRIVATE_KEY    full PEM including BEGIN/END lines
  *   INSTRUCTOR_PIN          anything you like; required to read the roster
+ *   HUB_KEY                 this app's key for Matt's Admin Hub; without it the
+ *                           Message Project Manager tab says "not connected yet"
  */
 
 const FS = 'https://firestore.googleapis.com/v1';
@@ -386,6 +390,104 @@ async function handleGrant(request, env) {
 
   if (classCache.key === code) classCache = { key: null, at: 0, value: null };
   return json({ ok: true, granted: tokens, students: ids.length });
+}
+
+/* ------------------------------------------------ Message Project Manager
+ *
+ * The dashboard's line to Matt. The instructor writes here; it lands in his
+ * Admin Hub, and his replies come back into the same tab.
+ *
+ * The browser never talks to the hub. This Worker checks the PIN exactly as
+ * every other instructor route does, then calls the hub server-to-server with
+ * HUB_KEY, which only it holds. Nothing here reads or writes Firestore - the
+ * hub keeps the thread - so the tab costs no part of the free-tier allowance
+ * however often it refreshes.
+ */
+
+const HUB_URL = 'https://matt-hub.prior-mixed-theme.workers.dev';
+const HUB_LINK = 'https://rt-mastery.prior-mixed-theme.workers.dev/dashboard.html';
+const HUB_MAX = 4000;           // the hub's own cap; past it the hub would cut her off mid-sentence
+const HUB_TIMEOUT_MS = 8000;
+
+// There is one instructor and one PIN, so there is one sender. The id is what
+// the hub files the thread under; changing it would start her a fresh thread.
+const HUB_SENDER = { id: 'instructor', name: 'Jess' };
+
+const HUB_NOT_CONNECTED = {
+  error: 'not connected yet',
+  detail: 'Messaging is not connected yet. Matt still has to set HUB_KEY on this Worker (DEPLOY.md).'
+};
+
+// The hub's answer, put in words the instructor can act on. Its own 400 and
+// 429 messages are already plain English, so those pass through.
+async function hubCall(env, path, init) {
+  let res;
+  try {
+    res = await fetch(HUB_URL + path, Object.assign({}, init, {
+      headers: Object.assign({ Authorization: `Bearer ${env.HUB_KEY}` }, (init && init.headers) || {}),
+      signal: AbortSignal.timeout(HUB_TIMEOUT_MS)
+    }));
+  } catch {
+    return { error: json({ error: 'Could not reach Matt\'s message hub. Try again in a minute.' }, 502) };
+  }
+  let j = {};
+  try { j = await res.json(); } catch { /* an empty or HTML body is still a status */ }
+  if (res.ok) return { j };
+  if (res.status === 401) {
+    return { error: json({ error: 'The message hub did not recognise this app. Matt needs to check its HUB_KEY.' }, 502) };
+  }
+  if (res.status === 400 || res.status === 429) {
+    return { error: json({ error: String(j.error || 'The message hub turned that message down.') }, res.status) };
+  }
+  return { error: json({ error: `The message hub had a problem (status ${res.status}). Try again later.` }, 502) };
+}
+
+async function handleHubSend(request, env) {
+  let body;
+  try { body = await request.json(); } catch { return json({ error: 'invalid json' }, 400); }
+
+  const pin = body.pin || '';
+  if (!env.INSTRUCTOR_PIN || pin !== env.INSTRUCTOR_PIN) return json({ error: 'invalid pin' }, 401);
+  if (!env.HUB_KEY) return json(HUB_NOT_CONNECTED, 503);
+
+  const text = String(body.body == null ? '' : body.body).trim();
+  if (!text) return json({ error: 'The message is empty.' }, 400);
+  // Refused, not trimmed: a message quietly cut short reads as though she
+  // stopped there.
+  if (text.length > HUB_MAX) {
+    return json({ error: `That message is ${text.length} characters. The limit is ${HUB_MAX}.` }, 400);
+  }
+
+  const out = await hubCall(env, '/api/app/message', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ senderId: HUB_SENDER.id, senderName: HUB_SENDER.name, body: text, link: HUB_LINK })
+  });
+  if (out.error) return out.error;
+  return json({ ok: true, id: out.j.id || null });
+}
+
+// A POST, not a GET, so the PIN travels in the body rather than in a URL that
+// ends up in logs and history every 45 seconds.
+async function handleHubThread(request, env) {
+  let body;
+  try { body = await request.json(); } catch { return json({ error: 'invalid json' }, 400); }
+
+  const pin = body.pin || '';
+  if (!env.INSTRUCTOR_PIN || pin !== env.INSTRUCTOR_PIN) return json({ error: 'invalid pin' }, 401);
+  if (!env.HUB_KEY) return json(HUB_NOT_CONNECTED, 503);
+
+  const out = await hubCall(env, '/api/app/thread?senderId=' + encodeURIComponent(HUB_SENDER.id), { method: 'GET' });
+  if (out.error) return out.error;
+  const messages = (Array.isArray(out.j.messages) ? out.j.messages : [])
+    .map((m) => ({
+      id: String(m.id || ''),
+      direction: m.direction === 'out' ? 'out' : 'in',
+      body: String(m.body || ''),
+      created: Number(m.created) || 0
+    }))
+    .sort((a, b) => a.created - b.created);
+  return json({ ok: true, messages });
 }
 
 /* ------------------------------------------------------- The Standing Order
@@ -1700,12 +1802,20 @@ export default {
           if (!backendReady(env)) return json(NOT_CONFIGURED, 503);
           return await handleRoomEvent(request, env);
         }
+        // No backendReady() gate: messaging needs the PIN and HUB_KEY, not Firestore.
+        if (url.pathname === '/api/hub/send' && request.method === 'POST') {
+          return await handleHubSend(request, env);
+        }
+        if (url.pathname === '/api/hub/thread' && request.method === 'POST') {
+          return await handleHubThread(request, env);
+        }
         if (url.pathname === '/api/health') {
           return json({
             ok: true,
             project: env.FIREBASE_PROJECT_ID || null,
             firestore: backendReady(env) ? 'configured' : 'not configured',
-            dashboard: env.INSTRUCTOR_PIN ? 'pin set' : 'pin not set'
+            dashboard: env.INSTRUCTOR_PIN ? 'pin set' : 'pin not set',
+            messages: env.HUB_KEY ? 'connected' : 'not connected'
           });
         }
         return json({ error: 'not found' }, 404);

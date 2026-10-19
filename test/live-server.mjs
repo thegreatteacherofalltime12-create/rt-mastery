@@ -1,6 +1,6 @@
 /**
  * Serves dist/ AND routes /api/* through the REAL Worker against the fake
- * Firestore. So a browser pointed here drives production Worker code - the same
+ * Firestore (and a fake Admin Hub for the dashboard's message tab). So a browser pointed here drives production Worker code - the same
  * dispatch, the same masked writes, the same cache - without touching the live
  * project or spending a Firestore operation.
  *
@@ -28,8 +28,32 @@ const TYPES = {
 };
 
 const fs = makeFirestore();
-const env = testEnv();
+// A made-up key for the made-up hub below; the real one is a Worker secret.
+const env = testEnv({ HUB_KEY: 'live-server-fake-hub-key-not-a-secret' });
 fs.install();                                   // left installed: the Worker needs it
+
+// Matt's Admin Hub, faked, so the Message Project Manager tab works offline.
+// Every message gets one canned reply, so both sides of the thread show.
+const HUB = 'https://matt-hub.prior-mixed-theme.workers.dev';
+const hubThread = [];
+const viaFirestore = globalThis.fetch;
+globalThis.fetch = async (u, o) => {
+  const url = String(u);
+  if (!url.startsWith(HUB + '/')) return viaFirestore(u, o);
+  const answer = (j, status = 200) =>
+    new Response(JSON.stringify(j), { status, headers: { 'Content-Type': 'application/json' } });
+  if (url.startsWith(HUB + '/api/app/message')) {
+    const b = JSON.parse((o && o.body) || '{}');
+    const now = Date.now();
+    hubThread.push({ id: 'in' + now, direction: 'in', body: b.body, created: now });
+    hubThread.push({ id: 'out' + now, direction: 'out', created: now + 1,
+                     body: 'Fake hub reply: this is the local test server, nothing left this computer.' });
+    console.log(`  [hub] ${b.senderName} (${b.senderId}): ${String(b.body).slice(0, 60)}`);
+    return answer({ ok: true, id: 'in' + now });
+  }
+  if (url.startsWith(HUB + '/api/app/thread')) return answer({ messages: hubThread.slice().reverse() });
+  return answer({ error: 'not found' }, 404);
+};
 const worker = (await import('../worker/index.js')).default;
 
 http.createServer(async (req, res) => {
@@ -75,4 +99,5 @@ http.createServer(async (req, res) => {
   console.log(`real Worker + fake Firestore on http://localhost:${PORT}`);
   console.log(`  projector  http://localhost:${PORT}/room    (any class code, PIN 1234)`);
   console.log(`  student    http://localhost:${PORT}/`);
+  console.log(`  dashboard  http://localhost:${PORT}/dashboard  (PIN 1234; the hub is faked)`);
 });

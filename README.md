@@ -32,6 +32,7 @@ Phone-first web app  ·  No login, no app install  ·  Free to run
 | **Exam prep** | Timed runs scoped to whatever an upcoming exam covers. Configured by the instructor in one JSON file. |
 | **Weak-topic tracking** | The app surfaces each student's weakest topics, and the dashboard rolls that up across the whole class. |
 | **Instructor dashboard** | Who has studied, how far they've got, best exam score, and what the class as a whole is failing — so it can be re-taught. |
+| **Message Project Manager** | A dashboard tab for messaging the app's maintainer. The Worker checks the PIN and relays it server-side; no key reaches the browser and no Firestore operation is spent. |
 
 Students identify themselves with a name and a class code. No accounts, no passwords, no barrier
 between opening the link and answering the first question.
@@ -109,6 +110,7 @@ npx wrangler login
 npx wrangler secret put FIREBASE_CLIENT_EMAIL
 npx wrangler secret put FIREBASE_PRIVATE_KEY
 npx wrangler secret put INSTRUCTOR_PIN
+npx wrangler secret put HUB_KEY      # optional: the dashboard's Message Project Manager tab
 npm run deploy
 ```
 

@@ -1,0 +1,49 @@
+# Claude Code for Matt's Admin Hub ("Send to Claude"). Works with the PC off.
+# The hub opens an issue and labels it "claude"; Claude works on a claude/issue-<n>-... branch and
+# reports in one progress comment; the hub opens the pull request and Matt approves it there.
+# "Ask for changes" in the hub posts an @claude comment on that pull request.
+# Only Matt's own account can start it (RT Mastery's repo is public).
+# Copied into each project by D:\Admin Hub\scripts\install-workflow.mjs; edit it there.
+name: Claude
+
+on:
+  issues:
+    types: [labeled]
+  issue_comment:
+    types: [created]
+
+jobs:
+  claude:
+    if: >-
+      github.actor == 'thegreatteacherofalltime12-create' && (
+        (github.event_name == 'issues' && github.event.label.name == 'claude') ||
+        (github.event_name == 'issue_comment' && contains(github.event.comment.body, '@claude'))
+      )
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    concurrency:
+      group: claude-${{ github.event.issue.number }}
+      cancel-in-progress: false
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+      id-token: write
+      actions: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          label_trigger: claude
+          claude_args: |
+            --model claude-opus-5-5
+            --max-turns 80
+            --allowedTools "Bash(npm:*),Bash(npx:*),Bash(node:*),Bash(cd:*),Bash(ls:*),Bash(git status:*),Bash(git diff:*),Bash(git log:*)"
+            --append-system-prompt "You are working for Matt, the owner, on a request sent from his Admin Hub. Read this repo's CLAUDE.md, README, SETUP or DEPLOY notes first and follow them. Keep the change as small as the request allows and match the existing code style. Install and run the project's own checks (npm ci, then npm test, or what CLAUDE.md says) and only finish when they pass. Never deploy, never run wrangler deploy or wrangler secret, never print or commit secrets, and never add git-ignored private content (question banks, keys, PIN data). Finish with a short plain-English summary for Matt: what changed, what to check once it is live, and any risk."

@@ -11,4 +11,9 @@ not_found_handling = "single-page-application"
 
 [vars]
 # Non-secret defaults. Secrets go in via: wrangler secret put <NAME>
+#   FIREBASE_CLIENT_EMAIL, FIREBASE_PRIVATE_KEY   the Firestore service account
+#   INSTRUCTOR_PIN                                gates the dashboard
+#   HUB_KEY                                       this app's key for Matt's Admin Hub
+#                                                 (the dashboard's Message Project Manager
+#                                                 tab); never put it in this file
 FIREBASE_PROJECT_ID = "dojomojo-2becb"
