@@ -12,7 +12,7 @@
     "test:save": "node test/round.mjs --save"
   },
   "devDependencies": {
-    "wrangler": "^3.90.0"
+    "wrangler": "^4.151.1"
   },
   "license": "MIT"
 }
