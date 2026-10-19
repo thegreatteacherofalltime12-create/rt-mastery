@@ -111,7 +111,15 @@ export function makeFirestore() {
         setAt(cur, parts, val === undefined ? null : val);
       }
     } else {
-      // no mask == whole-document replace
+      // no mask == whole-document replace. Real Firestore does exactly this, and
+      // writeRoom leans on it, so the branch stays. But a maskless write with no
+      // fields is never intended: it would blank the document. The real service
+      // would blank it silently; here it is an error, so the accident surfaces in
+      // a test instead of erasing a student on the live project.
+      if (!Object.keys(incoming).length) {
+        throw new Error('maskless write with no fields would blank ' + name +
+                        ' - send an updateMask, or send the fields you mean to keep');
+      }
       docs.set(name, incoming);
       writes.push({ kind: 'replace', path: name, doc: incoming });
       return;

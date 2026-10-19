@@ -40,9 +40,20 @@ http.createServer(async (req, res) => {
     for await (const c of req) chunks.push(c);
     const body = chunks.length ? Buffer.concat(chunks).toString() : undefined;
 
+    // Forward the browser's own headers. Replacing them hands the Worker a
+    // request no real client ever sends, so anything it reads off a header - a
+    // cookie, an Authorization bearer, a custom one - would look absent here and
+    // pass a mock round it fails in production.
+    const headers = new Headers();
+    for (const [k, v] of Object.entries(req.headers)) {
+      if (k.startsWith(':') || k === 'connection' || k === 'host') continue;
+      for (const one of Array.isArray(v) ? v : [v]) headers.append(k, one);
+    }
+    if (body && !headers.has('content-type')) headers.set('Content-Type', 'application/json');
+
     const wres = await worker.fetch(new Request('https://rt.test' + req.url, {
       method: req.method,
-      headers: body ? { 'Content-Type': 'application/json' } : {},
+      headers,
       body
     }), env);
 
