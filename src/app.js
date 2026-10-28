@@ -2738,7 +2738,6 @@
     render();
   }
 
-  function certLeft(kind) { return (S.run && S.run.budget && S.run.budget[kind]) || 0; }
   function certSpent() {
     if (!S.run || !S.run.budget) return 0;
     return CERT_ORDER.reduce(function (n, k) { return n + (CERT_BUDGET[k] - S.run.budget[k]); }, 0);
