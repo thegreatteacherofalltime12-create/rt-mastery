@@ -260,7 +260,10 @@
 
   var S = {
     screen: 'welcome',
-    profile: { name: '', classCode: '' },
+    // device: this phone or laptop, so two students with the same name can be
+    // told apart. studentId: the row the server put us in, which is the plain
+    // name slug for everyone who was already playing before this existed.
+    profile: { name: '', classCode: '', device: '', studentId: '' },
     progress: {},               // recKey -> { box, seen, right, wrong, last }
     levels: {},                 // chapterId -> current level (1..3)
     stats: { xp: 0, bestStreak: 0, sessions: 0, examRuns: [], tokens: 0, skills: {}, boost: 0, grantClaimed: 0, attempts: 0 },
@@ -920,12 +923,30 @@
 
   function syncEnabled() { return !!(S.profile.name && S.profile.classCode); }
 
+  // Made once and kept. Not an account and not a secret - just something
+  // stable to tell one Alex Smith from the other.
+  function deviceId() {
+    if (!S.profile.device) {
+      var r = new Uint8Array(8);
+      (self.crypto || {}).getRandomValues ? self.crypto.getRandomValues(r)
+        : r.forEach(function (_, i) { r[i] = Math.floor(Math.random() * 256); });
+      S.profile.device = Array.prototype.map.call(r, function (b) {
+        return (b + 256).toString(16).slice(1);
+      }).join('');
+      save();
+    }
+    return S.profile.device;
+  }
+
   // One batched write per finished round keeps us inside Firebase's free tier.
   // Every field here has a reader on the dashboard; anything write-only was a
   // document write that bought nothing. Nor is an identical body ever sent
   // twice - backing out of the live screen without playing used to cost a write.
   var lastSync = '';
-  function syncProgress(extra, force) {
+  // Set for exactly one sync, when a student says the name already in the
+  // class is hers and she is on a new device.
+  var claimNext = false;
+  function syncProgress(extra, force, retry) {
     if (!syncEnabled()) return Promise.resolve({ skipped: true });
     var o = overall();
     var levelSum = CHAPTERS.reduce(function (n, c) { return n + levelOf(c.id); }, 0);
@@ -935,6 +956,9 @@
     var body = {
       name: S.profile.name,
       classCode: S.profile.classCode,
+      device: deviceId(),
+      studentId: S.profile.studentId || '',
+      claim: claimNext,
       xp: S.stats.xp,
       sessions: S.stats.sessions,
       mastered: o.done,
@@ -968,13 +992,45 @@
       headers: { 'Content-Type': 'application/json' },
       body: json
     }).then(function (r) {
+      // 409 means the name is taken by a DIFFERENT device and nothing was
+      // written. The student is the only one who can say which Alex she is.
+      if (r.status === 409) {
+        return r.json().then(function (j) { return { nameTaken: true, next: (j && j.next) || '' }; },
+                             function () { return { error: 409 }; });
+      }
       if (!r.ok) return { error: r.status };
       lastSync = sig;          // only a write that landed may suppress the next one
       return r.json();
     }).then(function (j) {
-      if (j && j.ok) claimGrants(j.grantTotal);
+      if (j && j.nameTaken) return retry ? j : askWhichStudent(j, extra);
+      if (j && j.ok) {
+        claimNext = false;
+        // The server names the row. Remembering it is what keeps every later
+        // sync a single write with no lookup.
+        if (j.studentId && j.studentId !== S.profile.studentId) { S.profile.studentId = j.studentId; save(); }
+        claimGrants(j.grantTotal);
+      }
       return j;
     }).catch(function () { return { error: 'offline' }; });
+  }
+
+  // Two students, one name. Nothing has been written at this point, so either
+  // answer is safe; the wrong one is undone by the instructor deleting a row.
+  function askWhichStudent(info, extra) {
+    var mine = confirm(
+      'Someone in ' + S.profile.classCode + ' is already using the name "' + S.profile.name + '".\n\n' +
+      'OK - that is me, on another device. Carry my progress over.\n' +
+      'Cancel - I am a different student who happens to have the same name.');
+    if (mine) {
+      claimNext = true;
+    } else if (info.next) {
+      S.profile.studentId = info.next;
+    } else {
+      alert('Too many students share that name. Please add a middle initial to your name and try again.');
+      return { error: 'name taken' };
+    }
+    save();
+    return syncProgress(extra, true, true);
   }
 
   // Tokens the instructor has handed out. The server keeps a running total and
@@ -2074,7 +2130,8 @@
 
   function liveEvent(type, extra) {
     var body = Object.assign({
-      classCode: S.profile.classCode, code: LIVE.code, name: S.profile.name, type: type
+      classCode: S.profile.classCode, code: LIVE.code, name: S.profile.name, type: type,
+      studentId: S.profile.studentId || ''
     }, extra || {});
     if (type === 'join') body.games = MY_GAMES;
     return liveApi('POST', API + '/room/event', body);
@@ -2852,6 +2909,7 @@
           method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             classCode: S.profile.classCode, name: S.profile.name,
+            studentId: S.profile.studentId || '',
             correct: right, asked: r.views.length, seconds: secs
           })
         }).then(function (x) { return x.json(); })

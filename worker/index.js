@@ -178,6 +178,85 @@ const NOT_CONFIGURED = {
   detail: 'Firestore credentials are not set on this Worker. The game still works; progress is saved on each device only. See DEPLOY.md.'
 };
 
+// ------------------------------------------------------------ who is who
+//
+// A student is identified by the name they type, slugged. That is what makes
+// the game work with no accounts at all: type the same name on a second device
+// and your progress follows you. It also means two students called Alex Smith
+// in one class share one row and quietly overwrite each other all term.
+//
+// So the slug is now only the STARTING id. A device that has synced before
+// sends back the id it was given, and a second Alex is offered alex-smith-2.
+// The first Alex keeps alex-smith - which is what leaves every row written
+// before this change exactly where it is, still reachable, still hers.
+const ID_SUFFIX_MAX = 99;
+const ID_SCAN_MAX = 20;                   // how far to look for a free suffix
+
+// A client may only name an id inside its OWN name's family. Without this a
+// client could post Alex's round to Jordan's row just by naming it.
+function idInFamily(id, base) {
+  if (!id || !base) return false;
+  if (id === base) return true;
+  if (id.slice(0, base.length + 1) !== base + '-') return false;
+  const n = Number(id.slice(base.length + 1));
+  return Number.isInteger(n) && n >= 2 && n <= ID_SUFFIX_MAX;
+}
+
+// The id a client may use without any lookup at all: its own, if it is in the
+// family. Used by the live-round and standing paths, which must stay read-free.
+function askedId(body, base) {
+  const asked = slug(body && body.studentId);
+  return idInFamily(asked, base) ? asked : base;
+}
+
+function deviceOf(body) {
+  return String((body && body.device) || '').replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 40);
+}
+
+async function readStudent(env, classCode, id) {
+  const token = await getAccessToken(env);
+  const res = await fetch(
+    `${FS}/projects/${env.FIREBASE_PROJECT_ID}/databases/(default)/documents/classes/${classCode}/students/${id}`,
+    { headers: { Authorization: `Bearer ${token}` } });
+  if (res.status === 404) return null;
+  if (!res.ok) throw new Error('student read failed: ' + res.status);
+  return docToObject(await res.json());
+}
+
+// Returns { id, device } to write to, or { conflict } to ask the student about.
+// Everything here except the first branch runs ONCE per device, ever.
+async function resolveStudentId(env, classCode, base, body) {
+  const device = deviceOf(body);
+  const asked = slug(body.studentId);
+
+  // The steady path: a device that already knows its id says so, and this
+  // costs no read at all. The free-tier budget is unchanged for every sync
+  // after a student's first.
+  if (idInFamily(asked, base)) return { id: asked, device };
+
+  const existing = await readStudent(env, classCode, base);
+  if (!existing) return { id: base, device };
+
+  // A row written before this change carries no device. The next device to
+  // sync under that name adopts it, and that is the student herself: it is
+  // her own progress sitting in there, synced from her own phone.
+  if (!existing.device) return { id: base, device };
+
+  // An older client sends no device at all. It cannot be told apart and it
+  // cannot answer a question, so it keeps the behaviour it has always had.
+  if (!device || existing.device === device) return { id: base, device };
+
+  // She says it is her, on a new phone. No worse than the lock on the front
+  // door today, where typing a name is the whole of the authentication.
+  if (body.claim === true) return { id: base, device };
+
+  let next = '';
+  for (let n = 2; n <= ID_SCAN_MAX; n++) {
+    if (!(await readStudent(env, classCode, `${base}-${n}`))) { next = `${base}-${n}`; break; }
+  }
+  return { conflict: { taken: base, next: next || null } };
+}
+
 async function handleProgress(request, env) {
   let body;
   try {
@@ -190,8 +269,21 @@ async function handleProgress(request, env) {
   const classCode = slug(body.classCode);
   if (!name || !classCode) return json({ error: 'name and classCode are required' }, 400);
 
-  const studentId = slug(name);
-  if (!studentId) return json({ error: 'name must contain letters or numbers' }, 400);
+  const base = slug(name);
+  if (!base) return json({ error: 'name must contain letters or numbers' }, 400);
+
+  let who;
+  try {
+    who = await resolveStudentId(env, classCode, base, body);
+  } catch (e) {
+    return json({ error: 'student lookup failed', detail: String(e.message).slice(0, 200) }, 502);
+  }
+  // Nothing is written on a conflict. The student is asked which Alex she is
+  // and the answer comes back as claim:true or as the suggested id.
+  if (who.conflict) {
+    return json({ ok: false, nameTaken: true, taken: who.conflict.taken, next: who.conflict.next }, 409);
+  }
+  const studentId = who.id;
 
   // Only what the dashboard renders. bestStreak, per-chapter counts and the
   // last event were written on every sync and read by nobody. bestExam is sent
@@ -221,6 +313,9 @@ async function handleProgress(request, env) {
     examRuns: Array.isArray(body.examRuns) ? body.examRuns.slice(-3) : [],
     updatedAt: new Date().toISOString()
   };
+  // Only written when the client sent one, so an older client never stamps a
+  // row it cannot later recognise.
+  if (who.device) doc.device = who.device;
 
   const fields = {};
   for (const k of Object.keys(doc)) fields[k] = toFsValue(doc[k]);
@@ -282,7 +377,12 @@ async function handleClass(url, env) {
     return json({ error: 'firestore read failed', detail: text.slice(0, 300) }, 502);
   }
   const data = await res.json();
-  const students = (data.documents || []).map(docToObject)
+  // The ROW id, carried out with the row. The dashboard used to re-derive it
+  // from the name, which was right only while a name could mean exactly one
+  // student - so granting tokens to the second Alex Smith would have landed
+  // on the first.
+  const students = (data.documents || [])
+    .map((d) => Object.assign(docToObject(d), { id: String(d.name || '').split('/').pop() }))
     .map((s) => (Array.isArray(s.weakTopics)
       // The same fold on the per-student column, so one topic is not named two
       // ways on one screen while half the class has yet to resync.
@@ -638,7 +738,7 @@ async function handleStandingPost(request, env) {
 
   const classCode = slug(body.classCode);
   const name = String(body.name || '').trim().slice(0, 80);
-  const studentId = slug(name);
+  const studentId = askedId(body, slug(name));
   if (!classCode || !studentId) return json({ error: 'classCode and name are required' }, 400);
 
   // Clamped server-side. The client never names its own rate.
@@ -1738,7 +1838,9 @@ async function handleRoomEvent(request, env) {
   const classCode = slug(body.classCode);
   const roomCode = String(body.code || '').toUpperCase();
   const name = String(body.name || '').trim().slice(0, 80);
-  const studentId = slug(name);
+  // Two Alexes in one live round get two rows on the projector, the same way
+  // they now get two rows on the dashboard.
+  const studentId = askedId(body, slug(name));
   if (!classCode || !/^[A-Z]{4}$/.test(roomCode) || !studentId) {
     return json({ error: 'classCode, code and name are required' }, 400);
   }

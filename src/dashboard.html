@@ -283,19 +283,26 @@
         var pct = x.totalQuestions ? Math.round(100 * (x.mastered || 0) / x.totalQuestions) : 0;
         var stale = !x.updatedAt || (Date.now() - new Date(x.updatedAt)) > 7 * 86400000;
         var best = x.bestExam || 0;
-        var sid = slug(x.name);
+        // The server names the row. Falling back to the name keeps an older
+        // Worker working; two students sharing a name is exactly when the
+        // fallback is wrong, which is why it is only a fallback.
+        var sid = x.id || slug(x.name);
+        // Two rows reading "Alex Smith" are no use to her, so the second one
+        // says so.
+        var dup = s.filter(function (y) { return y.name === x.name; }).length > 1;
+        var who = esc(x.name) + (dup ? ' <span class="faint">(' + esc(sid) + ')</span>' : '');
         var tops = x.topics || [];
         var solid = tops.filter(function (t) { return t.s >= 2 && t.r / t.s >= 0.8; }).length;
         var shaky = tops.filter(function (t) { return t.s >= 2 && t.r / t.s < 0.5; }).length;
         return '<tr class="' + (stale ? 'stale' : '') + '">' +
           '<td class="who"><button class="linkbtn" data-topics="' + esc(sid) + '" ' +
-            'title="Show every topic">' + esc(x.name) + '</button></td>' +
+            'title="Show every topic">' + who + '</button></td>' +
           '<td class="num"><b>' + (x.avgLevel || 1) + '</b></td>' +
           '<td class="num">' + (x.mastered || 0) + '/' + (x.totalQuestions || 0) + '</td>' +
           '<td><span class="mini"><i style="width:' + pct + '%"></i></span> <span class="faint">' + pct + '%</span></td>' +
           '<td class="num">' + (x.sessions || 0) + '</td>' +
           '<td class="num">' + (best ? best + '%' : '—') + '</td>' +
-          '<td class="num">' + (x.tokens || 0) + ' <button class="iconbtn" data-grant="' + esc(slug(x.name)) + '" ' +
+          '<td class="num">' + (x.tokens || 0) + ' <button class="iconbtn" data-grant="' + esc(sid) + '" ' +
           'data-gname="' + esc(x.name) + '" title="Give tokens">+</button></td>' +
           '<td class="faint">' + esc((x.weakTopics || []).slice(0, 3).join(', ') || '—') + '</td>' +
           '<td class="num faint">' + ago(x.updatedAt) + '</td>' +
@@ -372,7 +379,7 @@
 
     var ga = document.getElementById('grantall');
     if (ga) ga.onclick = function () {
-      grant(s.map(function (x) { return slug(x.name); }), 'the whole class');
+      grant(s.map(function (x) { return x.id || slug(x.name); }), 'the whole class');
     };
 
     Array.prototype.forEach.call(document.querySelectorAll('[data-del]'), function (b) {
