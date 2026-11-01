@@ -24,6 +24,7 @@ const check = (label, cond, detail) => { n++; if (!cond) failures.push(label + (
 const hub = { calls: [], strays: [], next: null, thread: [] };
 
 const real = globalThis.fetch;
+hub.ups = 0;
 globalThis.fetch = async (u, o) => {
   const url = String(u);
   const opt = o || {};
@@ -47,6 +48,10 @@ globalThis.fetch = async (u, o) => {
     const images = (call.body.images || []).map((_, i) => HUB + '/img/' + (id + 'x' + i).padEnd(32, '0'));
     hub.thread.push({ id, direction: 'in', body: call.body.body, created: 1000 + hub.thread.length, images });
     return reply({ ok: true, id });
+  }
+  if (path === '/api/app/images' && call.method === 'POST') {
+    const ids = (call.body.images || []).map((_, i) => ('u' + hub.ups++ + 'x' + i).padEnd(32, '0'));
+    return reply({ ids });
   }
   if (path === '/api/app/thread' && call.method === 'GET') {
     // newest first on purpose: the Worker is the one promising oldest-first
@@ -184,7 +189,21 @@ check('pictures with the wrong PIN are refused', picBadPin.status === 401, 'got 
 const picNoPin = await call('/api/hub/send', { images: shots });
 check('pictures with no PIN are refused', picNoPin.status === 401, 'got ' + picNoPin.status);
 const five = await call('/api/hub/send', { pin: PIN, body: 'x', images: [shots[0], shots[0], shots[0], shots[0], shots[0]] });
-check('five pictures are refused', five.status === 400 && /4/.test(five.j.error || ''), JSON.stringify(five.j));
+check('five inline pictures are refused (upload first)', five.status === 400 && /Upload/.test(five.j.error || ''), JSON.stringify(five.j));
+const ID = (n) => String(n).padStart(32, 'a');
+const twenty = await call('/api/hub/send', { pin: PIN, body: 'x', images: Array.from({ length: 20 }, (_, i) => ID(i)) });
+check('twenty uploaded ids are sent', twenty.status === 200 && hub.calls[hub.calls.length - 1].body.images.length === 20, JSON.stringify(twenty.j));
+const t21 = await call('/api/hub/send', { pin: PIN, body: 'x', images: Array.from({ length: 21 }, (_, i) => ID(i)) });
+check('twenty-one pictures are refused', t21.status === 400 && /20/.test(t21.j.error || ''), JSON.stringify(t21.j));
+const up = await call('/api/hub/upload', { pin: PIN, images: [shots[1]] });
+check('one picture uploads and returns a 32-character id', up.status === 200 && /^[A-Za-z0-9]{32}$/.test((up.j.ids || [])[0] || ''), JSON.stringify(up.j));
+const up2 = await call('/api/hub/upload', { pin: PIN, images: [shots[0], shots[1]] });
+check('uploading two at once is refused', up2.status === 400, 'got ' + up2.status);
+const upPin = await call('/api/hub/upload', { pin: '9999', images: [shots[1]] });
+check('upload needs the PIN', upPin.status === 401, 'got ' + upPin.status);
+const upGif = await call('/api/hub/upload', { pin: PIN, images: [{ type: 'image/gif', data: PNG }] });
+check('upload refuses a GIF', upGif.status === 400, 'got ' + upGif.status);
+hub.calls.length = 0;
 const gif = await call('/api/hub/send', { pin: PIN, body: 'x', images: [{ type: 'image/gif', data: PNG }] });
 check('a GIF is refused', gif.status === 400 && /JPEG, PNG or WebP/.test(gif.j.error || ''), JSON.stringify(gif.j));
 const svg = await call('/api/hub/send', { pin: PIN, body: 'x', images: [{ type: 'image/svg+xml', data: PNG }] });

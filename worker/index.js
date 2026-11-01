@@ -4,7 +4,7 @@
  * Serves the static game and provides two endpoints:
  *   POST /api/progress          student progress upsert (one batched write per round)
  *   GET  /api/class?code=&pin=  instructor roster view, gated by INSTRUCTOR_PIN
- *   POST /api/hub/send          instructor message (and up to 4 screenshots) to Matt's Admin Hub, gated by the same PIN
+ *   POST /api/hub/send          instructor message (and up to 20 screenshots, uploaded first) to Matt's Admin Hub, gated by the same PIN
  *   POST /api/hub/thread        that conversation, Matt's replies included
  *
  * Firestore is reached with a Google service account signed in-Worker (RS256
@@ -517,11 +517,13 @@ const HUB_SENDER = { id: 'instructor', name: 'Jess' };
 // before sending, so a real one is a few hundred KB; these are ceilings, not
 // targets. The hub checks the decoded bytes itself (2.5 MB each); this Worker
 // only refuses what could never pass, so nothing hopeless is sent on.
-const HUB_MAX_IMAGES = 4;
+const HUB_MAX_IMAGES = 20;          // per message: uploaded one at a time first, then sent as ids
+const HUB_MAX_INLINE = 4;           // new pictures the hub takes inline in one request
+const HUB_ID_RE = /^[A-Za-z0-9]{32}$/;
 const HUB_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
 const HUB_MAX_IMAGE_B64 = 3_500_000;                          // characters of base64 per picture
 // Only /api/hub/send reads this much. Every other route keeps request.json().
-const HUB_SEND_MAX_JSON = HUB_MAX_IMAGES * HUB_MAX_IMAGE_B64 + 64_000;
+const HUB_SEND_MAX_JSON = HUB_MAX_INLINE * HUB_MAX_IMAGE_B64 + 64_000;
 // The only picture links passed back to the page: the hub's own /img/ route.
 const HUB_IMG_RE = /^https:\/\/matt-hub\.prior-mixed-theme\.workers\.dev\/img\/[A-Za-z0-9]{1,64}$/;
 
@@ -565,7 +567,10 @@ function hubImages(raw) {
     return { error: json({ error: `Up to ${HUB_MAX_IMAGES} pictures per message.` }, 400) };
   }
   const images = [];
+  let inline = 0;
   for (const item of raw) {
+    if (typeof item === 'string' && HUB_ID_RE.test(item)) { images.push(item); continue; }
+    if (++inline > HUB_MAX_INLINE) return { error: json({ error: 'Upload the pictures first, one at a time.' }, 400) };
     const type = item && item.type;
     const data = item && item.data;
     if (!HUB_IMAGE_TYPES.includes(type)) {
@@ -576,6 +581,31 @@ function hubImages(raw) {
     images.push({ type, data });
   }
   return { images };
+}
+
+// One picture at a time, uploaded ahead of the message; the hub hands back an id that /api/hub/send then carries.
+async function handleHubUpload(request, env) {
+  const declared = Number(request.headers.get('Content-Length') || 0);
+  if (declared > HUB_SEND_MAX_JSON) return json(HUB_TOO_BIG, 413);
+  let body;
+  try { body = JSON.parse(await request.text()); } catch { return json({ error: 'invalid json' }, 400); }
+  if (!body || typeof body !== 'object') return json({ error: 'invalid json' }, 400);
+  const pin = body.pin || '';
+  if (!env.INSTRUCTOR_PIN || pin !== env.INSTRUCTOR_PIN) return json({ error: 'invalid pin' }, 401);
+  if (!env.HUB_KEY) return json(HUB_NOT_CONNECTED, 503);
+  const raw = Array.isArray(body.images) ? body.images.filter((x) => typeof x !== 'string') : body.images;
+  const pics = hubImages(raw);
+  if (pics.error) return pics.error;
+  if (pics.images.length !== 1) return json({ error: 'Send one picture at a time.' }, 400);
+  const out = await hubCall(env, '/api/app/images', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ images: pics.images })
+  });
+  if (out.error) return out.error;
+  const id = Array.isArray(out.j.ids) ? out.j.ids[0] : null;
+  if (typeof id !== 'string' || !HUB_ID_RE.test(id)) return json({ error: 'The message hub did not accept that picture.' }, 502);
+  return json({ ok: true, ids: [id] });
 }
 
 async function handleHubSend(request, env) {
@@ -1960,6 +1990,9 @@ export default {
         // No backendReady() gate: messaging needs the PIN and HUB_KEY, not Firestore.
         if (url.pathname === '/api/hub/send' && request.method === 'POST') {
           return await handleHubSend(request, env);
+        }
+        if (url.pathname === '/api/hub/upload' && request.method === 'POST') {
+          return await handleHubUpload(request, env);
         }
         if (url.pathname === '/api/hub/thread' && request.method === 'POST') {
           return await handleHubThread(request, env);
