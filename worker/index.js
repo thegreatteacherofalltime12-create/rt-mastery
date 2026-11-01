@@ -505,7 +505,7 @@ async function handleGrant(request, env) {
  */
 
 const HUB_URL = 'https://matt-hub.prior-mixed-theme.workers.dev';
-const HUB_LINK = 'https://rt-mastery.prior-mixed-theme.workers.dev/dashboard.html';
+const HUB_LINK = 'https://rt-mastery.lindenwood-games.workers.dev/dashboard.html';
 const HUB_MAX = 4000;           // the hub's own cap; past it the hub would cut her off mid-sentence
 const HUB_TIMEOUT_MS = 8000;
 

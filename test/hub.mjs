@@ -104,7 +104,7 @@ check('senderId stays inside the hub\'s alphabet',
 check('senderName is her name', c.body && c.body.senderName === 'Jess', c.body && c.body.senderName);
 check('the message is trimmed', c.body && c.body.body === 'The exam 2 timer looks short.', JSON.stringify(c.body && c.body.body));
 check('the link is the live dashboard',
-      c.body && c.body.link === 'https://rt-mastery.prior-mixed-theme.workers.dev/dashboard.html', c.body && c.body.link);
+      c.body && c.body.link === 'https://rt-mastery.lindenwood-games.workers.dev/dashboard.html', c.body && c.body.link);
 check('the PIN is not forwarded to the hub', !JSON.stringify(c.body).includes(PIN));
 
 // ---------------------------------------------------------------------------
