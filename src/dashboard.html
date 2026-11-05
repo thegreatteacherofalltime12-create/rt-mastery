@@ -40,6 +40,12 @@
   /* The tabs only appear once the server has accepted her PIN, so nobody who
      opens this page without it sees there is a line to Matt at all. */
   .tabrow { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+  /* The projector view runs in here so her whole job is one link. It is a full
+     page in its own right, so it gets room to breathe and its own scrollbar. */
+  #liveFrame { width: 100%; height: 76vh; min-height: 460px; border: 1px solid var(--line);
+    border-radius: 14px; background: var(--card); display: block; }
+  .sharelink { font-family: ui-monospace, Menlo, Consolas, monospace; word-break: break-all;
+    background: var(--card-hi); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; }
   .tab { font: inherit; font-size: 0.9rem; font-weight: 650; padding: 10px 14px;
          border-radius: var(--r-sm); border: 1px solid var(--line);
          background: var(--card); color: var(--text-dim); cursor: pointer; }
@@ -105,10 +111,35 @@
 
   <div class="tabrow" id="tabs" role="tablist" style="display:none">
     <button class="tab on" role="tab" aria-selected="true" data-tab="class">Class</button>
+    <button class="tab" role="tab" aria-selected="false" data-tab="live">Live round</button>
+    <button class="tab" role="tab" aria-selected="false" data-tab="share">Student link</button>
     <button class="tab" role="tab" aria-selected="false" data-tab="msg">Message Project Manager</button>
   </div>
 
   <div id="out"></div>
+
+  <div id="livePane" style="display:none">
+    <div class="card">
+      <h3>Live round</h3>
+      <p class="faint" style="margin-top:-4px">The projector view, in here with everything else. It already knows
+        your class code and PIN. Put it on the classroom screen with the button below &mdash; the room keeps running
+        either way.</p>
+      <button class="btn ghost sm" id="liveOpen">Open on the projector</button>
+    </div>
+    <iframe id="liveFrame" title="Live round" src="about:blank"></iframe>
+  </div>
+
+  <div id="sharePane" style="display:none">
+    <div class="card">
+      <h3>The link you give your students</h3>
+      <p class="faint" style="margin-top:-4px">This one is theirs. It shows the game and nothing else &mdash; no
+        roster, no PIN box, nothing of yours.</p>
+      <p class="sharelink" id="shareLink"></p>
+      <button class="btn ghost sm" id="shareCopy">Copy the student link</button>
+      <p class="faint" id="shareNote" style="margin-top:10px"></p>
+      <p class="faint">Your own link is the one you are on now. Bookmark it: everything you need is on these tabs.</p>
+    </div>
+  </div>
 
   <div id="msgPane" style="display:none">
     <div class="card">
@@ -136,6 +167,9 @@
   var out = document.getElementById('out');
   var tabs = document.getElementById('tabs');
   var msgPane = document.getElementById('msgPane');
+  var livePane = document.getElementById('livePane');
+  var liveFrame = document.getElementById('liveFrame');
+  var sharePane = document.getElementById('sharePane');
 
   function esc(s) {
     return String(s == null ? '' : s)
@@ -182,9 +216,16 @@
     return days + 'd ago';
   }
 
+  // Her PIN arrives by email, and a copy from an email client often brings a
+  // trailing space with it. The class code beside it has always been trimmed;
+  // the PIN was not, so a pasted PIN that looked right was rejected.
+  function pinValue() {
+    return document.getElementById('pin').value.trim();
+  }
+
   function load() {
     var code = document.getElementById('code').value.trim();
-    var pin = document.getElementById('pin').value;
+    var pin = pinValue();
     if (!code || !pin) return;
     out.innerHTML = '<div class="card dim">Loading…</div>';
 
@@ -356,7 +397,7 @@
       n = Math.round(Number(n));
       if (!n || n < 1) return;
       var code = document.getElementById('code').value.trim();
-      var pin = document.getElementById('pin').value;
+      var pin = pinValue();
       fetch('/api/grant', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ code: code, pin: pin, ids: ids, tokens: n })
@@ -388,7 +429,7 @@
         if (!confirm('Permanently remove ' + who + ' and all their progress?\n\nThis cannot be undone.')) return;
         b.disabled = true;
         var code = document.getElementById('code').value.trim();
-        var pin = document.getElementById('pin').value;
+        var pin = pinValue();
         fetch('/api/class?code=' + encodeURIComponent(code) +
               '&id=' + encodeURIComponent(b.getAttribute('data-del')) +
               '&pin=' + encodeURIComponent(pin), { method: 'DELETE' })
@@ -424,6 +465,17 @@
   var msgNote = document.getElementById('msgNote');
   var msgCount = document.getElementById('msgCount');
 
+  // The projector page signs in from sessionStorage under its own key. Same
+  // origin, same tab, so writing that key before the frame loads hands it the
+  // code and PIN she has already typed - she signs in once, on this page.
+  function seedRoom() {
+    var code = document.getElementById('code').value.trim();
+    try {
+      var prev = JSON.parse(sessionStorage.getItem('rt-room') || 'null') || {};
+      sessionStorage.setItem('rt-room', JSON.stringify({ c: code, p: pinValue(), g: prev.g || 'buytime' }));
+    } catch (e) { /* private window: she types the PIN in the frame instead */ }
+  }
+
   function showTab(name) {
     Array.prototype.forEach.call(tabs.querySelectorAll('[data-tab]'), function (b) {
       var on = b.getAttribute('data-tab') === name;
@@ -432,6 +484,15 @@
     });
     out.style.display = name === 'class' ? '' : 'none';
     msgPane.style.display = name === 'msg' ? '' : 'none';
+    livePane.style.display = name === 'live' ? '' : 'none';
+    sharePane.style.display = name === 'share' ? '' : 'none';
+    // Loaded the first time she opens the tab, not before: an idle dashboard
+    // should not have a room poll running behind it.
+    if (name === 'live' && liveFrame.getAttribute('src') === 'about:blank') {
+      seedRoom();
+      liveFrame.setAttribute('src', '/room');
+    }
+    if (name === 'share') showShare();
     clearInterval(msgTimer);
     msgTimer = null;
     if (name === 'msg') {
@@ -448,12 +509,49 @@
   function lockTabs() {
     showTab('class');
     tabs.style.display = 'none';
+    // and the room frame goes with them, so nothing keeps polling with a PIN
+    // the server has just refused.
+    liveFrame.setAttribute('src', 'about:blank');
   }
+
+  function studentLink() {
+    var code = document.getElementById('code').value.trim();
+    return location.origin + '/' + (code ? '?class=' + encodeURIComponent(code) : '');
+  }
+
+  function showShare() {
+    document.getElementById('shareLink').textContent = studentLink();
+  }
+
+  document.getElementById('liveOpen').onclick = function () {
+    seedRoom();
+    window.open('/room', '_blank', 'noopener');
+  };
+
+  document.getElementById('shareCopy').onclick = function () {
+    var note = document.getElementById('shareNote');
+    var link = studentLink();
+    function fallback() {
+      // An old browser, or a page that is not allowed the clipboard: select it
+      // so Ctrl+C still works rather than leaving her with nothing.
+      var r = document.createRange();
+      r.selectNodeContents(document.getElementById('shareLink'));
+      var sel = window.getSelection();
+      sel.removeAllRanges();
+      sel.addRange(r);
+      note.textContent = 'Selected it for you — press Ctrl+C (Cmd+C on a Mac).';
+    }
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(link).then(function () {
+        note.textContent = 'Copied.';
+      }, fallback);
+    } else fallback();
+  };
 
   function hubPost(path, extra) {
     return fetch(path, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(Object.assign({ pin: document.getElementById('pin').value }, extra || {}))
+      body: JSON.stringify(Object.assign({ pin: pinValue() }, extra || {}))
     }).then(function (r) {
       return r.json().catch(function () { return {}; })
         .then(function (j) { return { ok: r.ok, status: r.status, j: j }; });

@@ -724,7 +724,7 @@
     var cc = document.getElementById('cc');
     var pin = document.getElementById('pin');
     if (cc) S.classCode = cc.value.trim();
-    if (pin) S.pin = pin.value;
+    if (pin) S.pin = pin.value.trim();   // same paste-with-a-space problem as the dashboard
   }
 
   function bind() {

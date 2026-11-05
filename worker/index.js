@@ -165,6 +165,17 @@ function slug(s) {
     .slice(0, 60);
 }
 
+// The PIN reaches her by email, and an email client hands out a trailing space
+// or a newline with the copied text often enough that "it is exactly what is in
+// the email" and "invalid pin" were both true at once. Surrounding whitespace is
+// never part of a PIN, so it is trimmed on both sides of the comparison. The
+// secret itself is trimmed too: a `wrangler secret put` fed from a file keeps the
+// file's newline.
+function pinOk(env, pin) {
+  const want = String(env.INSTRUCTOR_PIN || '').trim();
+  return Boolean(want) && String(pin || '').trim() === want;
+}
+
 // ---------------------------------------------------------------- handlers
 
 // The game is fully playable before Firestore is wired up, so say so plainly
@@ -359,7 +370,7 @@ async function handleClass(url, env) {
   const code = slug(url.searchParams.get('code'));
   const pin = url.searchParams.get('pin') || '';
   if (!code) return json({ error: 'code is required' }, 400);
-  if (!env.INSTRUCTOR_PIN || pin !== env.INSTRUCTOR_PIN) {
+  if (!pinOk(env, pin)) {
     return json({ error: 'invalid pin' }, 401);
   }
 
@@ -459,7 +470,7 @@ async function handleGrant(request, env) {
   const code = slug(body.code);
   const pin = body.pin || '';
   if (!code) return json({ error: 'code is required' }, 400);
-  if (!env.INSTRUCTOR_PIN || pin !== env.INSTRUCTOR_PIN) return json({ error: 'invalid pin' }, 401);
+  if (!pinOk(env, pin)) return json({ error: 'invalid pin' }, 401);
 
   const tokens = Math.min(50, Math.max(1, Math.round(Number(body.tokens) || 0)));
   const ids = (Array.isArray(body.ids) ? body.ids : [body.id]).map(slug).filter(Boolean);
@@ -591,7 +602,7 @@ async function handleHubUpload(request, env) {
   try { body = JSON.parse(await request.text()); } catch { return json({ error: 'invalid json' }, 400); }
   if (!body || typeof body !== 'object') return json({ error: 'invalid json' }, 400);
   const pin = body.pin || '';
-  if (!env.INSTRUCTOR_PIN || pin !== env.INSTRUCTOR_PIN) return json({ error: 'invalid pin' }, 401);
+  if (!pinOk(env, pin)) return json({ error: 'invalid pin' }, 401);
   if (!env.HUB_KEY) return json(HUB_NOT_CONNECTED, 503);
   const raw = Array.isArray(body.images) ? body.images.filter((x) => typeof x !== 'string') : body.images;
   const pics = hubImages(raw);
@@ -621,7 +632,7 @@ async function handleHubSend(request, env) {
   if (!body || typeof body !== 'object') return json({ error: 'invalid json' }, 400);
 
   const pin = body.pin || '';
-  if (!env.INSTRUCTOR_PIN || pin !== env.INSTRUCTOR_PIN) return json({ error: 'invalid pin' }, 401);
+  if (!pinOk(env, pin)) return json({ error: 'invalid pin' }, 401);
   if (!env.HUB_KEY) return json(HUB_NOT_CONNECTED, 503);
 
   const pics = hubImages(body.images);
@@ -654,7 +665,7 @@ async function handleHubThread(request, env) {
   try { body = await request.json(); } catch { return json({ error: 'invalid json' }, 400); }
 
   const pin = body.pin || '';
-  if (!env.INSTRUCTOR_PIN || pin !== env.INSTRUCTOR_PIN) return json({ error: 'invalid pin' }, 401);
+  if (!pinOk(env, pin)) return json({ error: 'invalid pin' }, 401);
   if (!env.HUB_KEY) return json(HUB_NOT_CONNECTED, 503);
 
   const out = await hubCall(env, '/api/app/thread?senderId=' + encodeURIComponent(HUB_SENDER.id), { method: 'GET' });
@@ -821,7 +832,7 @@ async function handleDelete(url, env) {
   const id = slug(url.searchParams.get('id'));
   const pin = url.searchParams.get('pin') || '';
   if (!code) return json({ error: 'code is required' }, 400);
-  if (!env.INSTRUCTOR_PIN || pin !== env.INSTRUCTOR_PIN) {
+  if (!pinOk(env, pin)) {
     return json({ error: 'invalid pin' }, 401);
   }
 
@@ -1784,7 +1795,7 @@ async function handleRoomControl(request, env) {
   const classCode = slug(body.classCode);
   const pin = body.pin || '';
   if (!classCode) return json({ error: 'classCode required' }, 400);
-  if (!env.INSTRUCTOR_PIN || pin !== env.INSTRUCTOR_PIN) return json({ error: 'invalid pin' }, 401);
+  if (!pinOk(env, pin)) return json({ error: 'invalid pin' }, 401);
 
   const action = String(body.action || '');
 

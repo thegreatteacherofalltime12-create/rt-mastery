@@ -285,6 +285,14 @@
         S.theme = d.theme || 'dark';
       }
     } catch (e) { /* corrupt or blocked storage — start fresh */ }
+    // One link for the whole class: the instructor's Student link tab hands out
+    // /?class=RT101, so the code is already filled in and nobody mistypes it.
+    // Her saved code wins if she has one - a student who is already playing is
+    // not moved to another class by opening a link.
+    try {
+      var fromLink = new URLSearchParams(location.search).get('class');
+      if (fromLink && !S.profile.classCode) S.profile.classCode = fromLink.trim();
+    } catch (e) { /* no URLSearchParams: she types the code as before */ }
     document.documentElement.setAttribute('data-theme', S.theme);
   }
 
