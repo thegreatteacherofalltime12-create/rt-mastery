@@ -98,6 +98,10 @@ h3 { font-size: 1.02rem; }
 p { margin: 0 0 12px; }
 .dim { color: var(--text-dim); }
 .faint { color: var(--text-faint); font-size: 0.85rem; }
+/* A word in a sentence that happens to be clickable — "change class" sits in
+   the line that names the class, where a button would shout. */
+.linkbtn { font: inherit; color: var(--accent); background: none; border: 0; padding: 0 2px;
+  cursor: pointer; text-decoration: underline; }
 .center { text-align: center; }
 
 /* ---------- top bar ---------- */

@@ -1250,9 +1250,33 @@
       '<div class="bar"><i style="width:' + (o.pct * 100).toFixed(1) + '%"></i></div>' +
       (S.profile.name
         ? '<p class="faint" style="margin:10px 0 0">' + esc(S.profile.name) +
-          (S.profile.classCode ? ' &middot; ' + esc(S.profile.classCode) : '') + '</p>'
+          (S.profile.classCode
+            ? ' &middot; ' + esc(S.profile.classCode) + ' <button class="linkbtn" data-joinclass>change class</button>'
+            : '') + '</p>'
         : '<p class="faint" style="margin:10px 0 0">Practising without a class code &mdash; progress saves on this device only.</p>') +
       '</div>';
+
+    // The class code was once askable only on the very first screen. Anyone who
+    // tapped "just let me practise" was then stuck outside their class for good:
+    // no Join live round button, no chapters their instructor had opened, and no
+    // way back short of clearing the browser. That is why a class of ten could
+    // not all get into a live game - not a limit on numbers, there has never
+    // been one, but classmates who had no way to say which class they are in.
+    if (!S.profile.classCode) {
+      h += '<div class="card">' +
+        '<div class="ztitle">Join your class</div>' +
+        '<p class="dim" style="font-size:0.88rem;margin:6px 0 10px">Enter the class code from your instructor to ' +
+        'join live rounds, save your progress for her to see, and get the units she has opened.</p>' +
+        '<div class="field" style="margin:0 0 10px">' +
+        '<input id="joinCode" type="text" autocomplete="off" autocapitalize="characters" placeholder="e.g. RT101"' +
+        ' value="' + esc(S.profile.classCode) + '"></div>' +
+        (S.profile.name ? '' :
+          '<div class="field" style="margin:0 0 10px"><input id="joinName" type="text" autocomplete="off"' +
+          ' placeholder="Your first and last name"></div>') +
+        '<button class="btn sm" data-joinsave>Join</button>' +
+        '<p class="faint" id="joinNote" style="margin:10px 0 0"></p>' +
+        '</div>';
+    }
 
     var weak = weakestTopics(4);
     if (weak.length && weak[0].pct < 80) {
@@ -1290,8 +1314,13 @@
       h += '<div class="card" style="margin-top:14px">' +
         '<div class="ztitle">&#128274; ' + waiting + ' more ' + (waiting === 1 ? 'unit' : 'units') + ' to come</div>' +
         '<p class="dim" style="font-size:0.88rem;margin:6px 0 0">The rest of the semester, plus Finals Prep across everything. ' +
-        'Your instructor opens it when the class gets there.</p>' +
-        '</div>';
+        // Without a class code there is no instructor to have opened anything,
+        // and saying "your instructor opens it" to someone the app never asked
+        // which class they are in is how this looked broken from her side.
+        (S.profile.classCode
+          ? 'Your instructor opens it when the class gets there.'
+          : 'Join your class above and you will see whatever your instructor has opened.') +
+        '</p></div>';
     }
 
     var bu = bossUnlocked();
@@ -3181,6 +3210,38 @@
     app.querySelectorAll('[data-chapter]').forEach(function (b) {
       b.onclick = function () { startPractice(b.getAttribute('data-chapter')); };
     });
+
+    // Joining a class from the map, for anyone who never did it on the first
+    // screen or typed the code wrong.
+    var joinSave = app.querySelector('[data-joinsave]');
+    if (joinSave) joinSave.onclick = function () {
+      var codeBox = app.querySelector('#joinCode');
+      var nameBox = app.querySelector('#joinName');
+      var note = app.querySelector('#joinNote');
+      var cc = (codeBox && codeBox.value.trim().toUpperCase()) || '';
+      if (!cc) { note.textContent = 'Enter the code your instructor gave you.'; codeBox.focus(); return; }
+      if (nameBox) {
+        var nm = nameBox.value.trim();
+        if (!nm) { note.textContent = 'Your name goes with it, so she knows whose work is whose.'; nameBox.focus(); return; }
+        S.profile.name = nm;
+      }
+      S.profile.classCode = cc;
+      // A different class is a different row, so the old one is not carried over.
+      S.profile.studentId = '';
+      save();
+      note.textContent = 'Joined ' + cc + '.';
+      render();
+      refreshSetup();
+      syncProgress({}, true);
+    };
+
+    var joinChange = app.querySelector('[data-joinclass]');
+    if (joinChange) joinChange.onclick = function () {
+      S.profile.classCode = '';
+      S.profile.studentId = '';
+      save();
+      render();
+    };
 
     var boss = app.querySelector('[data-boss]');
     if (boss && !boss.disabled) boss.onclick = function () {
