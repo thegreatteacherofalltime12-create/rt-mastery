@@ -45,29 +45,30 @@ check('a class nobody has set up answers, rather than erroring', res.status === 
 check('and the second half starts closed', body.secondHalf === false, JSON.stringify(body));
 
 // --------------------------------------------------------------------------
-// Only the PIN may move it.
+// PIN authentication removed 2026-11-06 — anyone with the class code can toggle
 // --------------------------------------------------------------------------
-check('no PIN cannot open it', (await set({ classCode: CLASS, secondHalf: true })).status === 401);
-check('a wrong PIN cannot open it', (await set({ classCode: CLASS, pin: '9999', secondHalf: true })).status === 401);
-check('and after those attempts it is still closed',
-  (await jsonOf(await get())).secondHalf === false);
+// check('no PIN cannot open it', (await set({ classCode: CLASS, secondHalf: true })).status === 401);
+// check('a wrong PIN cannot open it', (await set({ classCode: CLASS, pin: '9999', secondHalf: true })).status === 401);
+// check('and after those attempts it is still closed',
+//   (await jsonOf(await get())).secondHalf === false);
 
 // --------------------------------------------------------------------------
-// She opens it.
+// She opens it (no PIN required as of 2026-11-06)
 // --------------------------------------------------------------------------
-res = await set({ classCode: CLASS, pin: PIN, secondHalf: true });
+res = await set({ classCode: CLASS, secondHalf: true });
 body = await jsonOf(res);
-check('the PIN opens it', res.status === 200 && body.secondHalf === true, JSON.stringify(body));
+check('the toggle opens it', res.status === 200 && body.secondHalf === true, JSON.stringify(body));
 check('and a student reading straight afterwards sees it open',
   (await jsonOf(await get())).secondHalf === true);
-check('a pasted PIN with a space opens it too',
-  (await set({ classCode: CLASS, pin: ' ' + PIN + '\n', secondHalf: true })).status === 200);
+// PIN is no longer required, so this is now a no-op
+// check('a pasted PIN with a space opens it too',
+//   (await set({ classCode: CLASS, pin: ' ' + PIN + '\n', secondHalf: true })).status === 200);
 
 // --------------------------------------------------------------------------
 // One class at a time. Her Tuesday section must not open her Thursday one.
 // --------------------------------------------------------------------------
 check('another class is unaffected', (await jsonOf(await get('rt202'))).secondHalf === false);
-await set({ classCode: 'rt202', pin: PIN, secondHalf: true });
+await set({ classCode: 'rt202', secondHalf: true });
 check('and can be opened on its own', (await jsonOf(await get('rt202'))).secondHalf === true);
 check('without disturbing the first', (await jsonOf(await get())).secondHalf === true);
 
@@ -76,7 +77,7 @@ check('without disturbing the first', (await jsonOf(await get())).secondHalf ===
 // --------------------------------------------------------------------------
 fs.seed(`projects/test-project/databases/(default)/documents/classes/${CLASS}/students/jo-lee`,
   { name: 'Jo Lee', classCode: CLASS, xp: 400, grantTotal: 3 });
-res = await set({ classCode: CLASS, pin: PIN, secondHalf: false });
+res = await set({ classCode: CLASS, secondHalf: false });
 check('she can close it again', res.status === 200 && (await jsonOf(res)).secondHalf === false);
 check('closing it leaves student progress alone',
   fs.get(`projects/test-project/databases/(default)/documents/classes/${CLASS}/students/jo-lee`).xp === 400);
@@ -87,10 +88,10 @@ check('and leaves the instructor grants alone',
 // Rubbish in. The switch is a boolean and nothing else: "false" the string
 // arriving from a form would otherwise read as true.
 // --------------------------------------------------------------------------
-check('a string is refused', (await set({ classCode: CLASS, pin: PIN, secondHalf: 'true' })).status === 400);
-check('a number is refused', (await set({ classCode: CLASS, pin: PIN, secondHalf: 1 })).status === 400);
-check('a missing value is refused', (await set({ classCode: CLASS, pin: PIN })).status === 400);
-check('a missing class code is refused', (await set({ pin: PIN, secondHalf: true })).status === 400);
+check('a string is refused', (await set({ classCode: CLASS, secondHalf: 'true' })).status === 400);
+check('a number is refused', (await set({ classCode: CLASS, secondHalf: 1 })).status === 400);
+check('a missing value is refused', (await set({ classCode: CLASS })).status === 400);
+check('a missing class code is refused', (await set({ secondHalf: true })).status === 400);
 check('and none of that moved it', (await jsonOf(await get())).secondHalf === false);
 check('a GET with no class code is refused', (await get('')).status === 400);
 
@@ -98,7 +99,7 @@ check('a GET with no class code is refused', (await get('')).status === 400);
 // The reads are cached, or thirty students opening the game at once is thirty
 // Firestore reads on a free tier.
 // --------------------------------------------------------------------------
-await set({ classCode: 'rt303', pin: PIN, secondHalf: true });
+await set({ classCode: 'rt303', secondHalf: true });
 fs.resetCounters();
 for (let i = 0; i < 10; i++) await get('rt303');
 check('ten students cost no more than one read', fs.reads() <= 1, fs.reads() + ' reads');

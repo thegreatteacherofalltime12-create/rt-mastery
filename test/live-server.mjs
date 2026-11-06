@@ -42,6 +42,8 @@ const hubThread = [];
 // page never fetches anything from the live hub.
 const hubPics = new Map();
 let hubPicSeq = 0;
+const hubDocs = new Map();
+let hubDocSeq = 0;
 const viaFirestore = globalThis.fetch;
 globalThis.fetch = async (u, o) => {
   const url = String(u);
@@ -56,7 +58,11 @@ globalThis.fetch = async (u, o) => {
       hubPics.set(id, { type: p.type, buf: Buffer.from(p.data, 'base64') });
       return HUB + '/img/' + id;
     });
-    hubThread.push({ id: 'in' + now, direction: 'in', body: b.body, created: now, images });
+    const files = (b.files || []).map((id) => {
+      const d = hubDocs.get(id) || { name: 'file', buf: Buffer.alloc(0) };
+      return { name: d.name, size: d.buf.length, sizeText: Math.max(1, Math.round(d.buf.length / 1024)) + ' KB', url: HUB + '/file/' + id };
+    });
+    hubThread.push({ id: 'in' + now, direction: 'in', body: b.body, created: now, images, files });
     // The canned reply sends her first picture back, so Matt's side shows one too.
     hubThread.push({ id: 'out' + now, direction: 'out', created: now + 1, images: images.slice(0, 1),
                      body: 'Fake hub reply: this is the local test server, nothing left this computer.' });
@@ -64,6 +70,19 @@ globalThis.fetch = async (u, o) => {
                 (images.length ? ` + ${images.length} picture(s), ` +
                   images.map((x) => hubPics.get(x.slice(-32)).buf.length).join('/') + ' bytes' : ''));
     return answer({ ok: true, id: 'in' + now });
+  }
+  // Documents, held in memory like the pictures. The thread hands back the real
+  // hub's /file/ links so the Worker's link filter is exercised for real.
+  if (url.startsWith(HUB + '/api/app/file')) {
+    const name = new URL(url).searchParams.get('name') || 'file';
+    if (!/.(pdf|docx?|xlsx?|pptx?|odt|ods|odp|rtf|txt|csv|md|json|zip|jpe?g|png|webp|gif|heic)$/i.test(name)) {
+      return answer({ error: 'That kind of file cannot be sent. Try a PDF or a Word document.' }, 400);
+    }
+    const buf = Buffer.from(await new Response((o && o.body) || new Uint8Array(0)).arrayBuffer());
+    const id = ('fakedoc' + (++hubDocSeq)).padEnd(24, '0');
+    hubDocs.set(id, { name, buf });
+    console.log(`  [hub] file: ${name}, ${buf.length} bytes`);
+    return answer({ id, name, size: buf.length });
   }
   if (url.startsWith(HUB + '/api/app/thread')) return answer({ messages: hubThread.slice().reverse() });
   return answer({ error: 'not found' }, 404);
@@ -97,9 +116,19 @@ http.createServer(async (req, res) => {
 
     let text = await wres.text();
     if (url.pathname === '/api/hub/thread') text = text.split(HUB + '/img/').join('/fake-hub/img/');
+    if (url.pathname === '/api/hub/thread') text = text.split(HUB + '/file/').join('/fake-hub/file/');
     res.writeHead(wres.status, { 'Content-Type': 'application/json; charset=utf-8' });
     res.end(text);
     console.log(`  ${req.method} ${url.pathname} -> ${wres.status}`);
+    return;
+  }
+
+  if (url.pathname.startsWith('/fake-hub/file/')) {
+    const doc = hubDocs.get(url.pathname.slice('/fake-hub/file/'.length));
+    if (!doc) { res.writeHead(404); res.end('not found'); return; }
+    res.writeHead(200, { 'Content-Type': 'application/octet-stream', 'X-Content-Type-Options': 'nosniff',
+                         'Content-Disposition': 'attachment; filename="' + doc.name.replace(/"/g, '') + '"' });
+    res.end(doc.buf);
     return;
   }
 

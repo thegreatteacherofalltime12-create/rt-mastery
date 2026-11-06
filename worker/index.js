@@ -3,7 +3,8 @@
  *
  * Serves the static game and provides two endpoints:
  *   POST /api/progress          student progress upsert (one batched write per round)
- *   GET  /api/class?code=&pin=  instructor roster view, gated by INSTRUCTOR_PIN
+ *   GET  /api/classes           classes with students, biggest first
+ *   GET  /api/class?code=       instructor roster view
  *   POST /api/hub/send          instructor message (and up to 20 screenshots, uploaded first) to Matt's Admin Hub, gated by the same PIN
  *   POST /api/hub/thread        that conversation, Matt's replies included
  *
@@ -14,7 +15,6 @@
  *   FIREBASE_PROJECT_ID     e.g. dojomojo
  *   FIREBASE_CLIENT_EMAIL   ...@....iam.gserviceaccount.com
  *   FIREBASE_PRIVATE_KEY    full PEM including BEGIN/END lines
- *   INSTRUCTOR_PIN          anything you like; required to read the roster
  *   HUB_KEY                 this app's key for Matt's Admin Hub; without it the
  *                           Message Project Manager tab says "not connected yet"
  */
@@ -163,17 +163,6 @@ function slug(s) {
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-+|-+$/g, '')
     .slice(0, 60);
-}
-
-// The PIN reaches her by email, and an email client hands out a trailing space
-// or a newline with the copied text often enough that "it is exactly what is in
-// the email" and "invalid pin" were both true at once. Surrounding whitespace is
-// never part of a PIN, so it is trimmed on both sides of the comparison. The
-// secret itself is trimmed too: a `wrangler secret put` fed from a file keeps the
-// file's newline.
-function pinOk(env, pin) {
-  const want = String(env.INSTRUCTOR_PIN || '').trim();
-  return Boolean(want) && String(pin || '').trim() === want;
 }
 
 // ---------------------------------------------------------------- handlers
@@ -366,13 +355,45 @@ async function handleProgress(request, env) {
 const CLASS_CACHE_MS = 20000;
 let classCache = { key: null, at: 0, value: null };
 
+// The dashboard has no sign-in, so it asks here which classes exist and opens the
+// biggest. Parent class docs are never written, hence showMissing.
+const CLASSES_CACHE_MS = 60000;
+let classesCache = { at: 0, value: null };
+
+async function handleClasses(env) {
+  if (classesCache.value && Date.now() - classesCache.at < CLASSES_CACHE_MS) {
+    return json(classesCache.value);
+  }
+  const token = await getAccessToken(env);
+  const headers = { Authorization: `Bearer ${token}` };
+  const root = `projects/${env.FIREBASE_PROJECT_ID}/databases/(default)/documents/classes`;
+  const res = await fetch(`${FS}/${root}?showMissing=true&pageSize=300&mask.fieldPaths=__name__`, { headers });
+  if (!res.ok && res.status !== 404) {
+    const text = await res.text();
+    return json({ error: 'firestore read failed', detail: text.slice(0, 300) }, 502);
+  }
+  const data = res.ok ? await res.json() : {};
+  const codes = [...new Set((data.documents || [])
+    .map((d) => String(d.name || '').split('/classes/')[1])
+    .filter(Boolean)
+    .map((rest) => rest.split('/')[0]))];
+
+  const classes = [];
+  for (const code of codes) {
+    const r = await fetch(`${FS}/${root}/${code}/students?pageSize=300&mask.fieldPaths=__name__`, { headers });
+    if (!r.ok) continue;
+    const count = ((await r.json()).documents || []).length;
+    if (count) classes.push({ code, students: count });
+  }
+  classes.sort((a, b) => b.students - a.students);
+
+  classesCache = { at: Date.now(), value: { classes } };
+  return json(classesCache.value);
+}
+
 async function handleClass(url, env) {
   const code = slug(url.searchParams.get('code'));
-  const pin = url.searchParams.get('pin') || '';
   if (!code) return json({ error: 'code is required' }, 400);
-  if (!pinOk(env, pin)) {
-    return json({ error: 'invalid pin' }, 401);
-  }
 
   if (classCache.key === code && Date.now() - classCache.at < CLASS_CACHE_MS) {
     return json(classCache.value);
@@ -468,9 +489,7 @@ async function handleGrant(request, env) {
   try { body = await request.json(); } catch { return json({ error: 'invalid json' }, 400); }
 
   const code = slug(body.code);
-  const pin = body.pin || '';
   if (!code) return json({ error: 'code is required' }, 400);
-  if (!pinOk(env, pin)) return json({ error: 'invalid pin' }, 401);
 
   const tokens = Math.min(50, Math.max(1, Math.round(Number(body.tokens) || 0)));
   const ids = (Array.isArray(body.ids) ? body.ids : [body.id]).map(slug).filter(Boolean);
@@ -569,6 +588,73 @@ async function hubCall(env, path, init) {
 
 const HUB_TOO_BIG = { error: 'Those pictures are too big to send together. Try fewer at a time.' };
 
+/* --------------------------------------------------------- documents, not just pictures
+ *
+ * A screenshot shows a bug. A Word document is the lecture notes behind a whole
+ * unit of the course - the finals material arrived as four .docx files, by a
+ * route that went round this app entirely. So the message tab takes files too.
+ *
+ * A file goes up on its own, as RAW BYTES rather than base64 in JSON: a 20 MB
+ * document would be 27 MB of base64, and reading that into a string to check
+ * its length is how a Worker runs out of memory. The hub answers with an id,
+ * and the message carries the ids.
+ *
+ * What comes back the other way is a link, and for these files the link IS the
+ * protection - anyone holding it can read the file. So only the hub's own
+ * /file/ links are ever passed to the page, and none of them are logged.
+ */
+const HUB_MAX_FILES = 10;                       // per message, matching the hub
+const HUB_MAX_FILE_BYTES = 20 * 1024 * 1024;    // 20 MB each, matching the hub
+const HUB_FILE_ID_RE = /^[A-Za-z0-9]{8,64}$/;
+const HUB_FILE_RE = /^https:\/\/matt-hub\.prior-mixed-theme\.workers\.dev\/file\/[A-Za-z0-9]{1,64}$/;
+const HUB_FILE_TOO_BIG = { error: 'That file is over 20 MB. The hub will not take it.' };
+
+// One file, streamed through. The hub decides what types it accepts and its
+// refusal text is written for her, so it is passed straight back rather than
+// replaced with something vaguer.
+async function handleHubFile(request, env) {
+  const name = String(new URL(request.url).searchParams.get('name') || '').trim().slice(0, 200);
+  if (!name) return json({ error: 'The file needs a name.' }, 400);
+  if (!env.HUB_KEY) return json(HUB_NOT_CONNECTED, 503);
+
+  // Checked before the body is touched. There is no equivalent of the JSON
+  // guard here: the whole point is not to hold the file in memory as a string.
+  const declared = Number(request.headers.get('Content-Length') || 0);
+  if (declared > HUB_MAX_FILE_BYTES) return json(HUB_FILE_TOO_BIG, 413);
+
+  const bytes = await request.arrayBuffer();
+  if (bytes.byteLength > HUB_MAX_FILE_BYTES) return json(HUB_FILE_TOO_BIG, 413);
+  if (!bytes.byteLength) return json({ error: 'That file is empty.' }, 400);
+
+  const out = await hubCall(env, '/api/app/file?name=' + encodeURIComponent(name), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/octet-stream' },
+    body: bytes
+  });
+  if (out.error) return out.error;
+
+  const id = String(out.j.id || '');
+  if (!HUB_FILE_ID_RE.test(id)) return json({ error: 'The message hub did not accept that file.' }, 502);
+  return json({ ok: true, id, name: String(out.j.name || name), size: Number(out.j.size) || bytes.byteLength });
+}
+
+// The ids a message may carry. Shape only - the hub owns whether an id is real.
+function hubFileIds(raw) {
+  if (raw === undefined || raw === null) return { files: [] };
+  if (!Array.isArray(raw)) return { error: json({ error: 'files must be a list.' }, 400) };
+  if (raw.length > HUB_MAX_FILES) {
+    return { error: json({ error: `Up to ${HUB_MAX_FILES} files per message.` }, 400) };
+  }
+  const files = [];
+  for (const id of raw) {
+    if (typeof id !== 'string' || !HUB_FILE_ID_RE.test(id)) {
+      return { error: json({ error: 'Upload the files first, one at a time.' }, 400) };
+    }
+    files.push(id);
+  }
+  return { files };
+}
+
 // Pictures as the hub takes them: [{type, data}], passed on exactly as sent.
 // Returns { images } or { error } (a Response).
 function hubImages(raw) {
@@ -601,8 +687,6 @@ async function handleHubUpload(request, env) {
   let body;
   try { body = JSON.parse(await request.text()); } catch { return json({ error: 'invalid json' }, 400); }
   if (!body || typeof body !== 'object') return json({ error: 'invalid json' }, 400);
-  const pin = body.pin || '';
-  if (!pinOk(env, pin)) return json({ error: 'invalid pin' }, 401);
   if (!env.HUB_KEY) return json(HUB_NOT_CONNECTED, 503);
   const raw = Array.isArray(body.images) ? body.images.filter((x) => typeof x !== 'string') : body.images;
   const pics = hubImages(raw);
@@ -631,16 +715,17 @@ async function handleHubSend(request, env) {
   try { body = JSON.parse(raw); } catch { return json({ error: 'invalid json' }, 400); }
   if (!body || typeof body !== 'object') return json({ error: 'invalid json' }, 400);
 
-  const pin = body.pin || '';
-  if (!pinOk(env, pin)) return json({ error: 'invalid pin' }, 401);
   if (!env.HUB_KEY) return json(HUB_NOT_CONNECTED, 503);
 
   const pics = hubImages(body.images);
   if (pics.error) return pics.error;
 
+  const docs = hubFileIds(body.files);
+  if (docs.error) return docs.error;
+
   const text = String(body.body == null ? '' : body.body).trim();
-  // A screenshot on its own is a whole message.
-  if (!text && !pics.images.length) return json({ error: 'The message is empty.' }, 400);
+  // A screenshot on its own is a whole message, and so is a document.
+  if (!text && !pics.images.length && !docs.files.length) return json({ error: 'The message is empty.' }, 400);
   // Refused, not trimmed: a message quietly cut short reads as though she
   // stopped there.
   if (text.length > HUB_MAX) {
@@ -649,6 +734,7 @@ async function handleHubSend(request, env) {
 
   const forward = { senderId: HUB_SENDER.id, senderName: HUB_SENDER.name, body: text, link: HUB_LINK };
   if (pics.images.length) forward.images = pics.images;
+  if (docs.files.length) forward.files = docs.files;
   const out = await hubCall(env, '/api/app/message', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -664,8 +750,6 @@ async function handleHubThread(request, env) {
   let body;
   try { body = await request.json(); } catch { return json({ error: 'invalid json' }, 400); }
 
-  const pin = body.pin || '';
-  if (!pinOk(env, pin)) return json({ error: 'invalid pin' }, 401);
   if (!env.HUB_KEY) return json(HUB_NOT_CONNECTED, 503);
 
   const out = await hubCall(env, '/api/app/thread?senderId=' + encodeURIComponent(HUB_SENDER.id), { method: 'GET' });
@@ -678,7 +762,19 @@ async function handleHubThread(request, env) {
       created: Number(m.created) || 0,
       // Only the hub's own picture links reach the page, never anything else.
       images: (Array.isArray(m.images) ? m.images : [])
-        .filter((u) => typeof u === 'string' && HUB_IMG_RE.test(u)).slice(0, HUB_MAX_IMAGES)
+        .filter((u) => typeof u === 'string' && HUB_IMG_RE.test(u)).slice(0, HUB_MAX_IMAGES),
+      // Same rule for documents, and the same reason: the link is what
+      // protects the file, so a link that is not the hub's own never reaches
+      // the page. Name and size come along so she can recognise what she sent.
+      files: (Array.isArray(m.files) ? m.files : [])
+        .filter((f) => f && typeof f.url === 'string' && HUB_FILE_RE.test(f.url))
+        .slice(0, HUB_MAX_FILES)
+        .map((f) => ({
+          name: String(f.name || 'file').slice(0, 200),
+          size: Number(f.size) || 0,
+          sizeText: String(f.sizeText || '').slice(0, 20),
+          url: f.url
+        }))
     }))
     .sort((a, b) => a.created - b.created);
   return json({ ok: true, messages });
@@ -765,7 +861,6 @@ async function handleSetupPost(request, env) {
   try { body = await request.json(); } catch { return json({ error: 'invalid json' }, 400); }
   const classCode = slug(body.classCode || body.code);
   if (!classCode) return json({ error: 'classCode is required' }, 400);
-  if (!pinOk(env, body.pin)) return json({ error: 'invalid pin' }, 401);
   if (typeof body.secondHalf !== 'boolean') return json({ error: 'secondHalf must be true or false' }, 400);
 
   const token = await getAccessToken(env);
@@ -901,11 +996,7 @@ async function handleStandingPost(request, env) {
 async function handleDelete(url, env) {
   const code = slug(url.searchParams.get('code'));
   const id = slug(url.searchParams.get('id'));
-  const pin = url.searchParams.get('pin') || '';
   if (!code) return json({ error: 'code is required' }, 400);
-  if (!pinOk(env, pin)) {
-    return json({ error: 'invalid pin' }, 401);
-  }
 
   const token = await getAccessToken(env);
   const base = `projects/${env.FIREBASE_PROJECT_ID}/databases/(default)/documents/classes/${code}/students`;
@@ -1864,9 +1955,7 @@ async function handleRoomControl(request, env) {
   try { body = await request.json(); } catch { return json({ error: 'invalid json' }, 400); }
 
   const classCode = slug(body.classCode);
-  const pin = body.pin || '';
   if (!classCode) return json({ error: 'classCode required' }, 400);
-  if (!pinOk(env, pin)) return json({ error: 'invalid pin' }, 401);
 
   const action = String(body.action || '');
 
@@ -2037,6 +2126,10 @@ export default {
           if (!backendReady(env)) return json(NOT_CONFIGURED, 503);
           return await handleProgress(request, env);
         }
+        if (url.pathname === '/api/classes' && request.method === 'GET') {
+          if (!backendReady(env)) return json(NOT_CONFIGURED, 503);
+          return await handleClasses(env);
+        }
         if (url.pathname === '/api/class' && request.method === 'GET') {
           if (!backendReady(env)) return json(NOT_CONFIGURED, 503);
           return await handleClass(url, env);
@@ -2085,6 +2178,9 @@ export default {
         }
         if (url.pathname === '/api/hub/upload' && request.method === 'POST') {
           return await handleHubUpload(request, env);
+        }
+        if (url.pathname === '/api/hub/file' && request.method === 'POST') {
+          return await handleHubFile(request, env);
         }
         if (url.pathname === '/api/hub/thread' && request.method === 'POST') {
           return await handleHubThread(request, env);

@@ -3,7 +3,7 @@
 # reports in one progress comment; the hub opens the pull request and Matt approves it there.
 # "Ask for changes" in the hub posts an @claude comment on that pull request.
 # Only Matt's own account can start it (RT Mastery's repo is public).
-# Copied into each project by D:\Admin Hub\scripts\install-workflow.mjs; edit it there.
+# Copied into each project by F:\Admin Hub\scripts\install-workflow.mjs; edit it there.
 name: Claude
 
 on:

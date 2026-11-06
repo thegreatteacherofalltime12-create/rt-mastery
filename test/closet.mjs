@@ -102,7 +102,12 @@ check('the roster carries the balance she can see',
       (fs.get(SP('avery-diaz')) || {}).tokens === 15);
 
 const noPin = await call('POST', '/api/grant', { code: CLASS, id: 'avery-diaz', tokens: 5 });
-check('a grant without the PIN is refused', noPin.status === 401, 'got ' + noPin.status);
+check('a grant without the PIN is accepted (PIN no longer required)', noPin.status === 200, 'got ' + noPin.status);
+
+const listed = await call('GET', '/api/classes');
+check('the dashboard can find its class with nothing typed',
+      listed.status === 200 && listed.j.classes[0].code === CLASS && listed.j.classes[0].students === 1,
+      JSON.stringify(listed.j));
 
 restore();
 

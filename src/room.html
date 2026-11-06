@@ -98,7 +98,7 @@
 (function () {
   'use strict';
   var app = document.getElementById('app');
-  var S = { classCode: '', pin: '', room: null, err: '', poll: null, lastJson: '', game: 'buytime' };
+  var S = { classCode: '', room: null, err: '', poll: null, lastJson: '', game: 'buytime' };
 
   function esc(s) {
     return String(s == null ? '' : s)
@@ -120,7 +120,7 @@
   }
 
   function control(action, extra) {
-    var body = Object.assign({ classCode: S.classCode, pin: S.pin, action: action }, extra || {});
+    var body = Object.assign({ classCode: S.classCode, action: action }, extra || {});
     if (S.room) body.code = S.room.code;
     return api('POST', '/api/room', body).then(function (res) {
       if (!res.ok) { S.err = res.j.error || 'failed'; render(); return; }
@@ -590,10 +590,8 @@
       '<h1>' + esc(def.label) + '</h1><p class="dim">Projector view</p></div>' +
       (S.err ? '<div class="banner warn">' + esc(S.err) + '</div>' : '') +
       '<div class="card pad-lg">' +
-      '<div class="field"><label for="cc">Class code</label>' +
-      '<input id="cc" placeholder="e.g. RT101" autocapitalize="characters" value="' + esc(S.classCode) + '"></div>' +
-      '<div class="field"><label for="pin">Instructor PIN</label>' +
-      '<input id="pin" type="password" autocomplete="off" value="' + esc(S.pin) + '"></div>' +
+      (S.classCode ? '' : '<div class="field"><label for="cc">Class code</label>' +
+      '<input id="cc" placeholder="Class code" autocapitalize="characters" value=""></div>') +
       // The picker. This is the ONLY place a game is chosen, and the choice
       // leaves here inside the room code - she reads out four letters and says
       // nothing else.
@@ -722,9 +720,7 @@
   // ONE place, so a new control on this form cannot forget to.
   function stashSetup() {
     var cc = document.getElementById('cc');
-    var pin = document.getElementById('pin');
     if (cc) S.classCode = cc.value.trim();
-    if (pin) S.pin = pin.value.trim();   // same paste-with-a-space problem as the dashboard
   }
 
   function bind() {
@@ -733,9 +729,8 @@
     var sel = document.getElementById('game');
     if (sel) sel.onchange = function () {
       // Keep what she has already typed. render() rebuilds this form out of S,
-      // and S.classCode/S.pin were only written when Create was clicked - so
-      // choosing a game silently blanked both boxes, and the next click came
-      // back with "Class code and PIN are both needed" over an empty form.
+      // and S.classCode was only written when Create was clicked - so choosing a
+      // game silently blanked the box.
       stashSetup();
       S.game = sel.value;
       render();
@@ -744,8 +739,8 @@
     var c = document.getElementById('create');
     if (c) c.onclick = function () {
       stashSetup();
-      if (!S.classCode || !S.pin) { S.err = 'Class code and PIN are both needed.'; render(); return; }
-      try { sessionStorage.setItem('rt-room', JSON.stringify({ c: S.classCode, p: S.pin, g: S.game })); } catch (e) {}
+      if (!S.classCode) { S.err = 'No class found yet.'; render(); return; }
+      try { sessionStorage.setItem('rt-room', JSON.stringify({ c: S.classCode, g: S.game })); } catch (e) {}
       var def = GAMES[S.game] || GAMES.buytime;
       // the game id rides with the create; from here on the room carries it
       control('create', Object.assign({ game: S.game }, def.config()));
@@ -768,8 +763,15 @@
 
   try {
     var prev = JSON.parse(sessionStorage.getItem('rt-room') || 'null');
-    if (prev) { S.classCode = prev.c || ''; S.pin = prev.p || ''; S.game = prev.g || 'buytime'; }
+    if (prev) { S.classCode = prev.c || ''; S.game = prev.g || 'buytime'; }
   } catch (e) {}
+
+  if (!S.classCode) {
+    fetch('/api/classes').then(function (r) { return r.json(); }).then(function (j) {
+      var first = (j.classes || [])[0];
+      if (first && !S.classCode && !S.room) { S.classCode = first.code; render(); }
+    }).catch(function () {});
+  }
 
   // If the clock runs out, close the round so the projector stops counting down.
   // The in-flight flag matters: a slow cold start would otherwise fire end again

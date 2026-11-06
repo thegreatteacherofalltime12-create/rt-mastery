@@ -99,6 +99,21 @@
   .attach input { position: absolute; width: 1px; height: 1px; opacity: 0; overflow: hidden; }
   .pending { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 10px; }
   .pending:empty { display: none; }
+  /* Documents waiting to go, and documents already sent. A file has no
+     thumbnail to recognise it by, so it gets its name and its size instead. */
+  .filelist { display: flex; flex-direction: column; gap: 6px; margin: 0 0 10px; }
+  .filelist:empty { display: none; }
+  .pendfile { display: flex; align-items: center; gap: 10px; padding: 8px 10px;
+    background: var(--card-hi); border: 1px solid var(--line); border-radius: 10px; font-size: 0.9rem; }
+  .pendfile .fname { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .pendfile.sent { border-color: var(--accent); }
+  .pendfile button { font: inherit; border: 0; background: none; color: var(--text);
+    cursor: pointer; opacity: .6; padding: 0 2px; }
+  .pendfile button:hover { opacity: 1; }
+  .docs { display: flex; flex-direction: column; gap: 4px; margin-top: 6px; }
+  .docs .doc { display: flex; gap: 8px; align-items: center; padding: 6px 8px; border-radius: 8px;
+    background: rgba(255,255,255,.06); color: inherit; text-decoration: none; font-size: 0.85rem; }
+  .docs .doc:hover { background: rgba(255,255,255,.12); }
   .pend { position: relative; line-height: 0; }
   .pend img { width: 72px; height: 72px; object-fit: cover; border-radius: 8px;
               border: 1px solid var(--line); background: var(--card-hi); }
@@ -112,14 +127,9 @@
 <div id="app">
   <div class="topbar"><strong style="font-size:1rem">📊 Instructor dashboard</strong></div>
 
-  <div class="card" id="loginCard">
-    <p class="dim" style="font-size:0.9rem">Enter the class code you gave your students and your instructor PIN.</p>
-    <div class="field"><label for="code">Class code</label>
-      <input id="code" type="text" placeholder="e.g. RT101" autocapitalize="characters"></div>
-    <div class="field"><label for="pin">Instructor PIN</label>
-      <input id="pin" type="password" placeholder="Your PIN" autocomplete="off"></div>
-    <button class="btn" id="go">Load class</button>
-    <p class="faint" style="margin-top:10px">The PIN is set with <code>wrangler secret put INSTRUCTOR_PIN</code>. It is checked on the server — students cannot see this data.</p>
+  <input id="code" type="hidden">
+  <div class="card" id="classPick" style="display:none">
+    <div class="field" style="margin:0"><label for="classSel">Class</label><select id="classSel"></select></div>
   </div>
 
   <div class="tabrow" id="tabs" role="tablist" style="display:none">
@@ -136,7 +146,7 @@
     <div class="card">
       <h3>Live round</h3>
       <p class="faint" style="margin-top:-4px">The projector view, in here with everything else. It already knows
-        your class code and PIN. Put it on the classroom screen with the button below &mdash; the room keeps running
+        your class. Put it on the classroom screen with the button below &mdash; the room keeps running
         either way.</p>
       <button class="btn ghost sm" id="liveOpen">Open on the projector</button>
     </div>
@@ -151,7 +161,7 @@
         the mixed games start drawing from them, and <b>Finals Prep &mdash; Full Semester</b> opens.</p>
       <label class="switch"><input type="checkbox" id="halfToggle"><span>Open the second half to this class</span></label>
       <p class="faint" id="halfNote" style="margin-top:10px"></p>
-      <p class="faint">It applies to the class code above, so each class is on its own schedule. You can turn it
+      <p class="faint">It applies to this class only, so each class is on its own schedule. You can turn it
         back off at any time &mdash; nobody loses the work they have already done.</p>
     </div>
     <div class="card">
@@ -183,9 +193,12 @@
       <div class="msgtools">
         <label class="attach">📎 Add screenshot
           <input type="file" id="msgFiles" accept="image/*" multiple></label>
+        <label class="attach">📄 Add files
+          <input type="file" id="msgDocs" multiple></label>
         <p class="faint msgcount" id="msgCount">0 / 4000</p>
       </div>
       <div class="pending" id="msgPics" aria-label="Pictures to send"></div>
+      <div class="filelist" id="msgDocList" aria-label="Files to send"></div>
       <button class="btn" id="msgSend">Send</button>
       <p class="faint" id="msgNote" style="margin-top:10px"></p>
     </div>
@@ -251,24 +264,15 @@
     return days + 'd ago';
   }
 
-  // Her PIN arrives by email, and a copy from an email client often brings a
-  // trailing space with it. The class code beside it has always been trimmed;
-  // the PIN was not, so a pasted PIN that looked right was rejected.
-  function pinValue() {
-    return document.getElementById('pin').value.trim();
-  }
-
   function load() {
     var code = document.getElementById('code').value.trim();
-    var pin = pinValue();
-    if (!code || !pin) return;
+    if (!code) return;
     out.innerHTML = '<div class="card dim">Loading…</div>';
 
-    fetch('/api/class?code=' + encodeURIComponent(code) + '&pin=' + encodeURIComponent(pin))
+    fetch('/api/class?code=' + encodeURIComponent(code))
       .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, status: r.status, j: j }; }); })
       .then(function (res) {
         if (!res.ok) {
-          if (res.status === 401) lockTabs();
           out.innerHTML = '<div class="card"><h3>Could not load</h3><p class="dim">' +
             esc(res.j.error || 'Unknown error') + '</p>' +
             (res.j.detail ? '<p class="faint">' + esc(res.j.detail) + '</p>' : '') +
@@ -277,7 +281,7 @@
         }
         render(res.j);
         tabs.style.display = '';
-        try { sessionStorage.setItem('rt-dash', JSON.stringify({ code: code, pin: pin })); } catch (e) {}
+        try { sessionStorage.setItem('rt-dash', JSON.stringify({ code: code })); } catch (e) {}
       })
       .catch(function () {
         out.innerHTML = '<div class="card"><h3>Network error</h3><p class="dim">Could not reach the server.</p></div>';
@@ -432,10 +436,9 @@
       n = Math.round(Number(n));
       if (!n || n < 1) return;
       var code = document.getElementById('code').value.trim();
-      var pin = pinValue();
       fetch('/api/grant', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ code: code, pin: pin, ids: ids, tokens: n })
+        body: JSON.stringify({ code: code, ids: ids, tokens: n })
       }).then(function (r) { return r.json(); })
         .then(function (j) {
           if (j.ok) {
@@ -464,10 +467,8 @@
         if (!confirm('Permanently remove ' + who + ' and all their progress?\n\nThis cannot be undone.')) return;
         b.disabled = true;
         var code = document.getElementById('code').value.trim();
-        var pin = pinValue();
         fetch('/api/class?code=' + encodeURIComponent(code) +
-              '&id=' + encodeURIComponent(b.getAttribute('data-del')) +
-              '&pin=' + encodeURIComponent(pin), { method: 'DELETE' })
+              '&id=' + encodeURIComponent(b.getAttribute('data-del')), { method: 'DELETE' })
           .then(function (r) { return r.json(); })
           .then(function (j) {
             if (j.ok) load();
@@ -500,15 +501,15 @@
   var msgNote = document.getElementById('msgNote');
   var msgCount = document.getElementById('msgCount');
 
-  // The projector page signs in from sessionStorage under its own key. Same
+  // The projector page gets the code from sessionStorage under its own key. Same
   // origin, same tab, so writing that key before the frame loads hands it the
-  // code and PIN she has already typed - she signs in once, on this page.
+  // code she has already typed - she signs in once, on this page.
   function seedRoom() {
     var code = document.getElementById('code').value.trim();
     try {
       var prev = JSON.parse(sessionStorage.getItem('rt-room') || 'null') || {};
-      sessionStorage.setItem('rt-room', JSON.stringify({ c: code, p: pinValue(), g: prev.g || 'buytime' }));
-    } catch (e) { /* private window: she types the PIN in the frame instead */ }
+      sessionStorage.setItem('rt-room', JSON.stringify({ c: code, g: prev.g || 'buytime' }));
+    } catch (e) { /* private window: the frame finds the class itself */ }
   }
 
   function showTab(name) {
@@ -648,7 +649,7 @@
   function hubPost(path, extra) {
     return fetch(path, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(Object.assign({ pin: pinValue() }, extra || {}))
+      body: JSON.stringify(extra || {})
     }).then(function (r) {
       return r.json().catch(function () { return {}; })
         .then(function (j) { return { ok: r.ok, status: r.status, j: j }; });
@@ -656,7 +657,6 @@
   }
 
   function hubError(j) {
-    if (j.error === 'invalid pin') return 'Your PIN was not accepted. Re-enter it above and load the class again.';
     return (j.detail || j.error || 'Something went wrong.');
   }
 
@@ -684,7 +684,15 @@
         return '<a href="' + esc(u) + '" target="_blank" rel="noopener noreferrer" title="Open full size">' +
           '<img src="' + esc(u) + '" alt="Picture ' + (i + 1) + '" loading="lazy"></a>';
       }).join('') + '</span>' : '';
-      return '<div class="bubble ' + (m.direction === 'out' ? 'out' : 'in') + '">' + esc(m.body) + shots +
+      // Files she attached, named so she can tell at a glance which message
+      // carried which notes. The Worker has already thrown away any link that
+      // is not the hub's own.
+      var docs = (m.files || []).filter(function (f) { return f && f.url; });
+      var papers = docs.length ? '<span class="docs">' + docs.map(function (f) {
+        return '<a class="doc" href="' + esc(f.url) + '" target="_blank" rel="noopener noreferrer">' +
+          '📄 ' + esc(f.name) + '<span class="faint">' + esc(f.sizeText || '') + '</span></a>';
+      }).join('') + '</span>' : '';
+      return '<div class="bubble ' + (m.direction === 'out' ? 'out' : 'in') + '">' + esc(m.body) + shots + papers +
         '<span class="when">' + (m.direction === 'out' ? 'Matt' : 'You') + ' &middot; ' + esc(when(m.created)) +
         '</span></div>';
     }).join('');
@@ -735,6 +743,91 @@
       return '<span class="pend"><img src="' + esc(p.url) + '" alt="Screenshot ' + (i + 1) + ' to send">' +
         '<button type="button" data-pic="' + p.id + '" aria-label="Remove screenshot ' + (i + 1) + '">✕</button></span>';
     }).join('');
+  }
+
+  /* ------------------------------------------------------------- documents
+   * Pictures are shrunk in the browser; a document is sent as it is, so the
+   * only thing to do here is hold the File until Send and let the hub judge
+   * the type. Her lecture notes went to Matt by another route entirely before
+   * this existed.
+   */
+  var DOC_MAX = 10;                     // per message, matching the hub
+  var DOC_MAX_BYTES = 20 * 1024 * 1024; // 20 MB each, matching the hub
+  var docs = [];                        // { id, file, hubId }
+  var docSeq = 0;
+  var msgDocsInput = document.getElementById('msgDocs');
+  var msgDocList = document.getElementById('msgDocList');
+
+  function sizeText(n) {
+    if (n < 1024) return n + ' B';
+    if (n < 1024 * 1024) return Math.round(n / 1024) + ' KB';
+    return (n / (1024 * 1024)).toFixed(1) + ' MB';
+  }
+
+  function drawDocs() {
+    msgDocList.innerHTML = docs.map(function (d) {
+      return '<span class="pendfile' + (d.hubId ? ' sent' : '') + '">' +
+        '<span class="fname">' + (d.hubId ? '✓ ' : '📄 ') + esc(d.file.name) + '</span>' +
+        '<span class="faint">' + sizeText(d.file.size) + '</span>' +
+        '<button type="button" data-doc="' + d.id + '" aria-label="Remove ' + esc(d.file.name) + '">✕</button>' +
+        '</span>';
+    }).join('');
+  }
+
+  function addDocs(files) {
+    var list = Array.prototype.slice.call(files || []);
+    if (!list.length) return;
+    var room = DOC_MAX - docs.length;
+    if (room <= 0) { msgNote.textContent = 'Up to ' + DOC_MAX + ' files per message.'; return; }
+    if (list.length > room) {
+      msgNote.textContent = 'Up to ' + DOC_MAX + ' files per message, so only ' + room + ' more added.';
+      list = list.slice(0, room);
+    }
+    var tooBig = list.filter(function (f) { return f.size > DOC_MAX_BYTES; });
+    list = list.filter(function (f) { return f.size <= DOC_MAX_BYTES; });
+    if (tooBig.length) {
+      msgNote.textContent = tooBig.length === 1
+        ? '"' + tooBig[0].name + '" is over 20 MB, so it was left out.'
+        : tooBig.length + ' files are over 20 MB, so they were left out.';
+    }
+    list.forEach(function (f) { docs.push({ id: 'd' + (++docSeq), file: f, hubId: null }); });
+    drawDocs();
+  }
+
+  msgDocsInput.onchange = function () { addDocs(msgDocsInput.files); msgDocsInput.value = ''; };
+
+  msgDocList.onclick = function (e) {
+    var b = e.target.closest ? e.target.closest('[data-doc]') : null;
+    if (!b) return;
+    var id = b.getAttribute('data-doc');
+    docs = docs.filter(function (d) { return d.id !== id; });
+    drawDocs();
+  };
+
+  // One file at a time, with the name in the query string and the bytes as the
+  // body. A file already up keeps its id, so tapping Send again after a dropped
+  // connection re-sends only what did not make it.
+  function uploadDocs() {
+    var chain = Promise.resolve();
+    docs.forEach(function (d, i) {
+      chain = chain.then(function () {
+        if (d.hubId) return null;
+        msgSend.textContent = 'Sending file ' + (i + 1) + ' of ' + docs.length + '…';
+        return fetch('/api/hub/file?name=' + encodeURIComponent(d.file.name), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/octet-stream' },
+          body: d.file
+        }).then(function (r) {
+          return r.json().catch(function () { return {}; }).then(function (j) {
+            if (r.ok && j && j.id) { d.hubId = j.id; drawDocs(); return null; }
+            // The hub writes its refusals for her - the wrong file type, or
+            // too many this hour - so they are shown as they came.
+            throw new Error(hubError(j) || ('"' + d.file.name + '" was not accepted.'));
+          });
+        });
+      });
+    });
+    return chain;
   }
 
   function shrink(file) {
@@ -827,7 +920,7 @@
   function sendMsg() {
     var text = msgText.value.trim();
     if (picsWorking) { msgNote.textContent = 'Still getting the pictures ready. Try again in a second.'; return; }
-    if (!text && !pics.length) { msgNote.textContent = 'Write something or add a screenshot first.'; return; }
+    if (!text && !pics.length && !docs.length) { msgNote.textContent = 'Write something, or add a screenshot or a file first.'; return; }
     if (text.length > MSG_MAX) { msgNote.textContent = 'That is over ' + MSG_MAX + ' characters. Trim it a little.'; return; }
     msgSend.disabled = true;
     msgNote.textContent = 'Sending…';
@@ -852,16 +945,19 @@
         return attempt(0);
       });
     });
-    chain.then(function () {
+    chain.then(uploadDocs).then(function () {
       msgSend.textContent = 'Sending…';
       var payload = { body: text };
       if (pics.length) payload.images = pics.map(function (p) { return p.hubId; });
+      if (docs.length) payload.files = docs.map(function (d) { return d.hubId; });
       return hubPost('/api/hub/send', payload);
     })
       .then(function (res) {
         if (res.ok) {
           msgText.value = '';
           clearPics();
+          docs = [];
+          drawDocs();
           countMsg();
           msgNote.textContent = 'Sent to Matt.';
           refreshThread();
@@ -887,19 +983,44 @@
     if (document.visibilityState === 'visible' && msgTimer) refreshThread();
   });
 
-  document.getElementById('go').onclick = load;
-  document.getElementById('pin').addEventListener('keydown', function (e) {
-    if (e.key === 'Enter') load();
-  });
+  var codeEl = document.getElementById('code');
+  var classPick = document.getElementById('classPick');
+  var classSel = document.getElementById('classSel');
+  classSel.onchange = function () { codeEl.value = classSel.value; load(); };
 
-  // restore the last code/pin for this tab only
-  try {
-    var prev = JSON.parse(sessionStorage.getItem('rt-dash') || 'null');
-    if (prev) {
-      document.getElementById('code').value = prev.code || '';
-      document.getElementById('pin').value = prev.pin || '';
-    }
-  } catch (e) {}
+  function openDashboard() {
+    out.innerHTML = '<div class="card dim">Loading…</div>';
+    fetch('/api/classes')
+      .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, j: j }; }); })
+      .then(function (res) {
+        if (!res.ok) throw new Error('classes');
+        var list = res.j.classes || [];
+        if (!list.length) {
+          tabs.style.display = '';
+          out.innerHTML = '<div class="card"><h3>No students yet</h3><p class="dim">Student progress will appear here once someone plays.</p></div>';
+          return;
+        }
+        var last = null;
+        try { last = (JSON.parse(sessionStorage.getItem('rt-dash') || 'null') || {}).code; } catch (e) {}
+        var pick = list.some(function (c) { return c.code === last; }) ? last : list[0].code;
+        if (list.length > 1) {
+          list.forEach(function (c) {
+            var o = document.createElement('option');
+            o.value = c.code;
+            o.textContent = c.code.toUpperCase() + ' (' + c.students + ' student' + (c.students === 1 ? '' : 's') + ')';
+            classSel.appendChild(o);
+          });
+          classSel.value = pick;
+          classPick.style.display = '';
+        }
+        codeEl.value = pick;
+        load();
+      })
+      .catch(function () {
+        out.innerHTML = '<div class="card"><h3>Could not load</h3><p class="dim">Could not reach the server. Refresh the page to try again.</p></div>';
+      });
+  }
+  openDashboard();
 })();
 </script>
 </body>
