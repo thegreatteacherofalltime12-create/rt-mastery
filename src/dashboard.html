@@ -46,6 +46,19 @@
     border-radius: 14px; background: var(--card); display: block; }
   .sharelink { font-family: ui-monospace, Menlo, Consolas, monospace; word-break: break-all;
     background: var(--card-hi); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; }
+  /* A switch she can hit with a thumb, and that reads as on or off at a glance
+     rather than as a tick box she might have half-pressed. */
+  .switch { display: flex; align-items: center; gap: 12px; cursor: pointer;
+    font-weight: 650; padding: 4px 0; }
+  .switch input { appearance: none; -webkit-appearance: none; margin: 0; flex: none;
+    width: 52px; height: 30px; border-radius: 999px; background: var(--card-hi);
+    border: 1px solid var(--line); position: relative; cursor: pointer; transition: background .15s; }
+  .switch input::after { content: ''; position: absolute; top: 3px; left: 3px; width: 22px; height: 22px;
+    border-radius: 50%; background: var(--text); opacity: .55; transition: transform .15s, opacity .15s; }
+  .switch input:checked { background: var(--accent-soft); border-color: var(--accent); }
+  .switch input:checked::after { transform: translateX(22px); opacity: 1; background: var(--accent); }
+  .switch input:disabled { opacity: .5; cursor: progress; }
+  .switch input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   .tab { font: inherit; font-size: 0.9rem; font-weight: 650; padding: 10px 14px;
          border-radius: var(--r-sm); border: 1px solid var(--line);
          background: var(--card); color: var(--text-dim); cursor: pointer; }
@@ -112,6 +125,7 @@
   <div class="tabrow" id="tabs" role="tablist" style="display:none">
     <button class="tab on" role="tab" aria-selected="true" data-tab="class">Class</button>
     <button class="tab" role="tab" aria-selected="false" data-tab="live">Live round</button>
+    <button class="tab" role="tab" aria-selected="false" data-tab="setup">Course setup</button>
     <button class="tab" role="tab" aria-selected="false" data-tab="share">Student link</button>
     <button class="tab" role="tab" aria-selected="false" data-tab="msg">Message Project Manager</button>
   </div>
@@ -127,6 +141,23 @@
       <button class="btn ghost sm" id="liveOpen">Open on the projector</button>
     </div>
     <iframe id="liveFrame" title="Live round" src="about:blank"></iframe>
+  </div>
+
+  <div id="setupPane" style="display:none">
+    <div class="card">
+      <h3>Second half of the semester</h3>
+      <p class="faint" style="margin-top:-4px">The units you teach after the midterm are written and waiting.
+        While this is off your students do not see them at all. Turn it on and the chapters appear on their map,
+        the mixed games start drawing from them, and <b>Finals Prep &mdash; Full Semester</b> opens.</p>
+      <label class="switch"><input type="checkbox" id="halfToggle"><span>Open the second half to this class</span></label>
+      <p class="faint" id="halfNote" style="margin-top:10px"></p>
+      <p class="faint">It applies to the class code above, so each class is on its own schedule. You can turn it
+        back off at any time &mdash; nobody loses the work they have already done.</p>
+    </div>
+    <div class="card">
+      <h4 style="margin:0 0 6px">What opens</h4>
+      <div id="halfList" class="faint">Loading…</div>
+    </div>
   </div>
 
   <div id="sharePane" style="display:none">
@@ -161,6 +192,7 @@
   </div>
 </div>
 
+<script src="chapters.js"></script>
 <script>
 (function () {
   'use strict';
@@ -170,6 +202,9 @@
   var livePane = document.getElementById('livePane');
   var liveFrame = document.getElementById('liveFrame');
   var sharePane = document.getElementById('sharePane');
+  var setupPane = document.getElementById('setupPane');
+  var halfToggle = document.getElementById('halfToggle');
+  var halfNote = document.getElementById('halfNote');
 
   function esc(s) {
     return String(s == null ? '' : s)
@@ -486,6 +521,8 @@
     msgPane.style.display = name === 'msg' ? '' : 'none';
     livePane.style.display = name === 'live' ? '' : 'none';
     sharePane.style.display = name === 'share' ? '' : 'none';
+    setupPane.style.display = name === 'setup' ? '' : 'none';
+    if (name === 'setup') loadSetup();
     // Loaded the first time she opens the tab, not before: an idle dashboard
     // should not have a room poll running behind it.
     if (name === 'live' && liveFrame.getAttribute('src') === 'about:blank') {
@@ -513,6 +550,66 @@
     // the server has just refused.
     liveFrame.setAttribute('src', 'about:blank');
   }
+
+  // ----------------------------------------------------- course setup switch
+  function classCode() { return document.getElementById('code').value.trim(); }
+
+  function loadSetup() {
+    halfToggle.disabled = true;
+    halfNote.textContent = 'Checking…';
+    fetch('/api/setup?classCode=' + encodeURIComponent(classCode()))
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (j) {
+        if (!j) { halfNote.textContent = 'Could not read the current setting. Try again in a moment.'; return; }
+        halfToggle.checked = Boolean(j.secondHalf);
+        halfToggle.disabled = false;
+        halfNote.textContent = j.secondHalf
+          ? 'Open. Your students can study the whole semester.'
+          : 'Closed. Your students see the first half only.';
+      })
+      .catch(function () { halfNote.textContent = 'Could not reach the server.'; });
+    listHalf();
+  }
+
+  // Named from the bundle the students are actually served, so this list cannot
+  // drift from what the switch really opens.
+  function listHalf() {
+    var box = document.getElementById('halfList');
+    var chapters = (window.RT_CHAPTERS || []).filter(function (c) { return Number(c.half) === 2; });
+    var exams = (window.RT_EXAM_LIST || []).filter(function (e) { return Number(e.half) === 2; });
+    if (!chapters.length && !exams.length) { box.textContent = 'Nothing is marked as second-half material yet.'; return; }
+    var n = chapters.reduce(function (t, c) { return t + (c.questions || 0); }, 0);
+    box.innerHTML = '<ul style="margin:0;padding-left:18px">' +
+      chapters.map(function (c) {
+        return '<li>' + esc(c.title) + ' <span class="faint">&mdash; ' + (c.questions || 0) + ' questions</span></li>';
+      }).join('') +
+      exams.map(function (e) { return '<li>' + esc(e.name) + '</li>'; }).join('') +
+      '</ul><p class="faint" style="margin:8px 0 0">' + n + ' questions in all.</p>';
+  }
+
+  halfToggle.onclick = function () {
+    var want = halfToggle.checked;
+    halfToggle.disabled = true;
+    halfNote.textContent = want ? 'Opening…' : 'Closing…';
+    hubPost('/api/setup', { classCode: classCode(), secondHalf: want })
+      .then(function (res) {
+        halfToggle.disabled = false;
+        if (!res.ok) {
+          // put the switch back where the server still has it
+          halfToggle.checked = !want;
+          halfNote.textContent = 'Not changed: ' + ((res.j && res.j.error) || 'the server refused it') + '.';
+          return;
+        }
+        halfToggle.checked = Boolean(res.j.secondHalf);
+        halfNote.textContent = res.j.secondHalf
+          ? 'Open. Students see it the next time their game checks in — a reload is instant.'
+          : 'Closed. Students keep their progress; the chapters are simply out of sight.';
+      }, function () {
+        halfToggle.disabled = false;
+        halfToggle.checked = !want;
+        halfNote.textContent = 'Not changed: could not reach the server.';
+      });
+  };
 
   function studentLink() {
     var code = document.getElementById('code').value.trim();

@@ -6,8 +6,28 @@
   'use strict';
 
   var CONTENT = window.RT_CONTENT || { chapters: [], exams: { exams: [] } };
-  var CHAPTERS = CONTENT.chapters || [];
-  var EXAMS = (CONTENT.exams && CONTENT.exams.exams) || [];
+  var ALL_CHAPTERS = CONTENT.chapters || [];
+  var ALL_EXAMS = (CONTENT.exams && CONTENT.exams.exams) || [];
+
+  // The material taught after the midterm ships in the bundle from the day it
+  // is written, but the instructor decides when the class may study it. Until
+  // she opens it, a chapter marked `half: 2` is simply not part of the game:
+  // not on the map, not in the mixed modes, not in the Final Boss, not in an
+  // exam. Everything downstream reads CHAPTERS and EXAMS, so filtering here is
+  // the whole lock - there is no second place that has to remember.
+  var secondHalfOpen = false;
+  var isSecondHalf = function (x) { return Number(x && x.half) === 2; };
+  var CHAPTERS = ALL_CHAPTERS.filter(function (c) { return !isSecondHalf(c); });
+  var EXAMS = ALL_EXAMS.filter(function (e) { return !isSecondHalf(e); });
+
+  function applySecondHalf(open) {
+    open = Boolean(open);
+    if (open === secondHalfOpen) return false;
+    secondHalfOpen = open;
+    CHAPTERS = open ? ALL_CHAPTERS.slice() : ALL_CHAPTERS.filter(function (c) { return !isSecondHalf(c); });
+    EXAMS = open ? ALL_EXAMS.slice() : ALL_EXAMS.filter(function (e) { return !isSecondHalf(e); });
+    return true;
+  }
 
   var STORE_KEY = 'rt-mastery-v1';
   var MASTERY_BOX = 3;          // box number that counts as mastered
@@ -256,6 +276,52 @@
 
   var API = '/api';
 
+  // ------------------------------------------------- what the class may study
+  //
+  // The instructor's switch, read once on load and again when she may have
+  // flipped it mid-session. Cached in its own key so a student with no signal
+  // keeps whatever they last saw: losing the second half of the course to a
+  // dropped connection would be a worse failure than showing it a minute late.
+  var SETUP_KEY = 'rt-setup-v1';
+
+  function readSecondHalfCache() {
+    try {
+      var raw = localStorage.getItem(SETUP_KEY);
+      if (!raw) return false;
+      var d = JSON.parse(raw);
+      // tied to the class code: joining a different class must not inherit the
+      // last class's answer.
+      return d && d.code === S.profile.classCode && Boolean(d.secondHalf);
+    } catch (e) { return false; }
+  }
+
+  function writeSecondHalfCache(open) {
+    try {
+      localStorage.setItem(SETUP_KEY, JSON.stringify({ code: S.profile.classCode, secondHalf: Boolean(open) }));
+    } catch (e) { /* private mode: the server answer still applies this session */ }
+  }
+
+  function refreshSetup() {
+    // No class code means nobody has told this device which class it belongs
+    // to, so there is no instructor to ask. The first half stays available.
+    if (!S.profile.classCode) return Promise.resolve(false);
+    return fetch(API + '/setup?classCode=' + encodeURIComponent(S.profile.classCode))
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (j) {
+        if (!j) return false;
+        writeSecondHalfCache(j.secondHalf);
+        if (applySecondHalf(j.secondHalf)) {
+          // Only redraw when the answer actually changed something, and never
+          // on top of a round in progress - the map can wait until she is back
+          // on it rather than yanking a question away mid-answer.
+          if (S.screen === 'map' || S.screen === 'welcome') render();
+          return true;
+        }
+        return false;
+      })
+      .catch(function () { return false; });
+  }
+
   // ---------------------------------------------------------------- state
 
   var S = {
@@ -454,6 +520,19 @@
     var out = '', v = Number(n) || 0;
     for (var i = 0; i < map.length; i++) while (v >= map[i][0]) { out += map[i][1]; v -= map[i][0]; }
     return out || String(n);
+  }
+
+  // Not everything in the course is a numbered chapter. The ICF is its own
+  // lecture, and calling it "Ch 11" in front of a student is just wrong - so a
+  // unit may carry its own short label and the number is only the fallback.
+  function chLabel(c) {
+    if (!c) return '';
+    return c.short ? c.short : 'Ch ' + c.number;
+  }
+
+  function chBadge(c) {
+    if (!c) return '';
+    return c.short ? esc(c.short) : roman(c.number);
   }
 
   function shuffle(a) {
@@ -699,7 +778,7 @@
     var cp = crossPool(pool, want, cap);
     var names = cp.chapters.map(function (id) {
       var c = chapterById(id);
-      return c ? 'Ch ' + c.number : id;
+      return c ? chLabel(c) : id;
     });
     var lvName = (LEVELS[cp.level] || LEVELS[1]).name;
     if (!names.length) return '';
@@ -709,7 +788,7 @@
     var above = cp.chapters.filter(function (id) { return levelOf(id) > cp.level; })
       .map(function (id) {
         var c = chapterById(id);
-        return c ? 'Ch ' + c.number : id;
+        return c ? chLabel(c) : id;
       });
     var note = '';
     if (above.length) {
@@ -1190,7 +1269,7 @@
       var info = LEVELS[lv];
       h += '<button class="zone ' + (maxed ? 'done' : '') + '" data-chapter="' + c.id + '">' +
         '<span class="orb">' +
-        roman(c.number) + '</span>' +
+        chBadge(c) + '</span>' +
         '<span class="grow">' +
         '<div class="ztitle">' + esc(c.title) + (maxed ? ' &#10003;' : '') + '</div>' +
         '<div class="zmeta">' +
@@ -1202,6 +1281,18 @@
         '<span class="chev">&rsaquo;</span>' +
         '</button>';
     });
+
+    // Chapters exist that this class cannot study yet. Say so plainly: a
+    // student who knows the rest is coming is not a student wondering whether
+    // their app is broken or their course is missing something.
+    var waiting = ALL_CHAPTERS.length - CHAPTERS.length;
+    if (waiting > 0) {
+      h += '<div class="card" style="margin-top:14px">' +
+        '<div class="ztitle">&#128274; ' + waiting + ' more ' + (waiting === 1 ? 'unit' : 'units') + ' to come</div>' +
+        '<p class="dim" style="font-size:0.88rem;margin:6px 0 0">The rest of the semester, plus Finals Prep across everything. ' +
+        'Your instructor opens it when the class gets there.</p>' +
+        '</div>';
+    }
 
     var bu = bossUnlocked();
     h += '<div class="card boss" style="margin-top:14px">' +
@@ -1353,7 +1444,7 @@
       '<tr><th>Chapter</th><th class="num">Locked in</th><th class="num">%</th></tr>' +
       CHAPTERS.map(function (c) {
         var m = chapterMastery(c);
-        return '<tr><td>Ch ' + c.number + ' &middot; ' + esc(c.title) + '</td>' +
+        return '<tr><td>' + esc(chLabel(c)) + ' &middot; ' + esc(c.title) + '</td>' +
           '<td class="num">' + m.done + '/' + m.total + '</td>' +
           '<td class="num">' + Math.round(m.pct * 100) + '%</td></tr>';
       }).join('') + '</table></div></div>';
@@ -1610,7 +1701,7 @@
     if (r.mode === 'ghost' && !v.answered && !v._askedAt) v._askedAt = Date.now();
 
     h += '<div class="card pad-lg">';
-    h += '<span class="tag">' + (ch ? 'Ch ' + ch.number + ' &middot; ' : '') + esc(q.topic) + '</span>';
+    h += '<span class="tag">' + (ch ? esc(chLabel(ch)) + ' &middot; ' : '') + esc(q.topic) + '</span>';
     h += '<div class="qprompt">' + esc(q.prompt) + '</div>';
 
     h += renderBody(v);
@@ -2121,7 +2212,7 @@
 
   function chapterLabel(id) {
     var c = chapterById(id);
-    return c ? 'Ch ' + c.number : id;
+    return c ? chLabel(c) : id;
   }
 
   function liveGameOf(r) { return (r && r.game) || 'buytime'; }
@@ -2607,7 +2698,7 @@
     var picked = buildSession(pool, Math.min(SESSION_SIZE, pool.length), lv);
     S.run = {
       mode: 'practice', chapterId: chapterId, level: lv,
-      title: 'Ch ' + ch.number + ' · L' + lv,
+      title: chLabel(ch) + ' · L' + lv,
       views: buildViews(picked, lv),
       idx: 0, streak: 0, xpStart: S.stats.xp,
       deadline: null, hideFeedback: false, passMark: 0
@@ -3080,6 +3171,8 @@
       if (!nm) { app.querySelector('#nm').focus(); return; }
       S.profile.name = nm; S.profile.classCode = cc;
       save(); S.screen = 'map'; render();
+      // Now that we know the class, ask it whether the second half is open.
+      refreshSetup();
     };
 
     var skip = app.querySelector('[data-skip]');
@@ -3352,10 +3445,15 @@
 
   load();
   S.screen = S.profile.name ? 'map' : 'welcome';
-  if (!CHAPTERS.length) {
+  if (!ALL_CHAPTERS.length) {
     app.innerHTML = '<div class="card" style="margin-top:40px"><h2>No content loaded</h2>' +
       '<p class="dim">Run <code>npm run build</code> to bundle the chapter files.</p></div>';
     return;
   }
+  // The last answer from her class, so a student who opens the game on the bus
+  // with no signal sees the same map they saw yesterday instead of losing half
+  // the course. The server is still asked, and still wins.
+  applySecondHalf(readSecondHalfCache());
   render();
+  refreshSetup();
 })();

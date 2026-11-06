@@ -371,9 +371,15 @@ function build() {
   // The projector labels one lane per chapter, so it needs their names - but it
   // has no business carrying 236 questions to get them. This is the manifest
   // only: id, number, title. A few hundred bytes against ~200KB.
-  const manifest = shipped.map((c) => ({ id: c.id, number: c.number, title: c.title }));
+  // `half` and the question count ride along for the instructor dashboard,
+  // which lists what its second-half switch opens. Same reasoning: it needs the
+  // names and the sizes, not the questions.
+  const manifest = shipped.map((c) => ({
+    id: c.id, number: c.number, short: c.short || null, title: c.title, half: c.half || 1, questions: c.questions.length
+  }));
   fs.writeFileSync(path.join(DIST, 'chapters.js'),
     'window.RT_CHAPTERS=' + JSON.stringify(manifest) + ';\n' +
+    'window.RT_EXAM_LIST=' + JSON.stringify((exams.exams || []).map((e) => ({ id: e.id, name: e.name, half: e.half || 1 }))) + ';\n' +
     'window.RT_AREAS=' + JSON.stringify(WALK_AREAS) + ';\n' +
     'window.RT_BARRIERS=' + JSON.stringify(WALK_BARRIERS) + ';');
   for (const f of ['index.html', 'styles.css', 'app.js', 'dashboard.html', 'room.html']) {

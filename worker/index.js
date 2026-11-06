@@ -713,6 +713,77 @@ function standingPath(env, classCode) {
   return `projects/${env.FIREBASE_PROJECT_ID}/databases/(default)/documents/classes/${classCode}/meta/standing`;
 }
 
+/* ---------------------------------------------------------------- class setup
+ * One switch the instructor owns: whether the second half of the semester is
+ * open. The chapters taught after the midterm ship in the bundle from the day
+ * they are written, so this is what keeps them out of the way until she is
+ * teaching them - and what opens Finals Prep when she is.
+ *
+ * It is one field on one document per class. Students read it; only the PIN
+ * writes it. The read is cached for a minute, so a class of thirty opening the
+ * game at once costs one Firestore read, not thirty.
+ */
+const SETUP_CACHE_MS = 60000;
+let setupCache = { key: null, at: 0, value: null };
+
+function setupPath(env, classCode) {
+  return `projects/${env.FIREBASE_PROJECT_ID}/databases/(default)/documents/classes/${classCode}/meta/setup`;
+}
+
+const publicSetup = (doc) => ({ secondHalf: Boolean(doc && doc.secondHalf) });
+
+async function readSetup(env, classCode) {
+  if (setupCache.key === classCode && Date.now() - setupCache.at < SETUP_CACHE_MS) return setupCache.value;
+  const token = await getAccessToken(env);
+  const res = await fetch(`${FS}/${setupPath(env, classCode)}`, {
+    headers: { Authorization: `Bearer ${token}` }
+  });
+  // No document yet is the ordinary state for a class that has never been
+  // switched on, and caching it stops that class paying a read every time.
+  if (res.status === 404) { setupCache = { key: classCode, at: Date.now(), value: null }; return null; }
+  if (!res.ok) throw new Error('setup read failed: ' + res.status);
+  const doc = docToObject(await res.json());
+  setupCache = { key: classCode, at: Date.now(), value: doc };
+  return doc;
+}
+
+async function handleSetupGet(url, env) {
+  const classCode = slug(url.searchParams.get('classCode') || url.searchParams.get('code'));
+  if (!classCode) return json({ error: 'classCode is required' }, 400);
+  // A class nobody has set up yet simply has the second half closed. The
+  // student's game must not break because the instructor has not been here.
+  if (!backendReady(env)) return json(publicSetup(null));
+  try {
+    return json(publicSetup(await readSetup(env, classCode)));
+  } catch {
+    return json(publicSetup(null));
+  }
+}
+
+async function handleSetupPost(request, env) {
+  let body;
+  try { body = await request.json(); } catch { return json({ error: 'invalid json' }, 400); }
+  const classCode = slug(body.classCode || body.code);
+  if (!classCode) return json({ error: 'classCode is required' }, 400);
+  if (!pinOk(env, body.pin)) return json({ error: 'invalid pin' }, 401);
+  if (typeof body.secondHalf !== 'boolean') return json({ error: 'secondHalf must be true or false' }, 400);
+
+  const token = await getAccessToken(env);
+  const res = await fetch(`${FS}/${setupPath(env, classCode)}?updateMask.fieldPaths=secondHalf`, {
+    method: 'PATCH',
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ fields: { secondHalf: toFsValue(body.secondHalf) } })
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    return json({ error: 'firestore write failed', detail: text.slice(0, 300) }, 502);
+  }
+  // Her own view must show the switch where she just put it, not where the
+  // cache still thinks it is.
+  setupCache = { key: classCode, at: Date.now(), value: { secondHalf: body.secondHalf } };
+  return json({ ok: true, secondHalf: body.secondHalf });
+}
+
 /**
  * Correct answers per hour, with the denominator clamped to a minute.
  *
@@ -1981,6 +2052,16 @@ export default {
         if (url.pathname === '/api/room' && request.method === 'POST') {
           if (!backendReady(env)) return json(NOT_CONFIGURED, 503);
           return await handleRoomControl(request, env);
+        }
+        // No backendReady() gate on the GET: a student whose class has never
+        // been set up still gets an answer (the second half is closed), rather
+        // than a 503 that would stall the game on load.
+        if (url.pathname === '/api/setup' && request.method === 'GET') {
+          return await handleSetupGet(url, env);
+        }
+        if (url.pathname === '/api/setup' && request.method === 'POST') {
+          if (!backendReady(env)) return json(NOT_CONFIGURED, 503);
+          return await handleSetupPost(request, env);
         }
         if (url.pathname === '/api/standing' && request.method === 'GET') {
           if (!backendReady(env)) return json(NOT_CONFIGURED, 503);

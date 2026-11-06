@@ -13,8 +13,15 @@ Thumbs.db
 
 # Course question banks are held privately at the instructor's request.
 # The sample chapter ships so the project builds and is playable on clone.
-content/ch*.json
+#
+# Ignore EVERY content file and name the exceptions, rather than matching
+# "ch*.json". Not every unit is a numbered chapter - the ICF is a lecture of
+# its own, named icf.json, and under the old rule it was not ignored at all.
+# A unit whose name does not start with "ch" must not be one `git add -A`
+# away from a public repo.
+content/*.json
 !content/ch-example.json
+!content/exams.json
 
 # The generated test bank is her question bank in another shape.
 testbank/

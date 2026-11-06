@@ -4,19 +4,24 @@
     "id": "Short unique id, letters/numbers/dashes only. Example: exam-1",
     "name": "What students see. Example: Exam 1 (Chapters 2-4)",
     "date": "Optional. YYYY-MM-DD. Shows a countdown to students.",
-    "chapters": "Array of chapter ids to pull questions from: ch2, ch3, ch4, ch6, ch7",
+    "chapters": "Array of chapter ids to pull questions from: ch2, ch3, ch4, ch5, ch6, ch7, ch8, ch9, ch10, icf",
     "topics": "Optional. Array of topic names to narrow further. Leave empty [] for all topics in those chapters. Topic names are the 'topic' field on each question.",
     "questionCount": "How many questions in one timed run.",
     "minutes": "Time limit for the timed run. Use 0 for untimed.",
     "passMark": "Percent needed to count as a pass. Example: 80",
-    "note": "Optional message shown to students before they start."
+    "note": "Optional message shown to students before they start.",
+    "half": "Optional. Set to 2 for an exam that belongs to the second half of the semester. It stays hidden until the instructor turns on the second half from her dashboard."
   },
   "exams": [
     {
       "id": "exam-1",
       "name": "Exam 1 — Chapters 2, 3 & 4",
       "date": "",
-      "chapters": ["ch2", "ch3", "ch4"],
+      "chapters": [
+        "ch2",
+        "ch3",
+        "ch4"
+      ],
       "topics": [],
       "questionCount": 40,
       "minutes": 45,
@@ -27,7 +32,10 @@
       "id": "exam-2",
       "name": "Exam 2 — Chapters 6 & 7",
       "date": "",
-      "chapters": ["ch6", "ch7"],
+      "chapters": [
+        "ch6",
+        "ch7"
+      ],
       "topics": [],
       "questionCount": 35,
       "minutes": 40,
@@ -36,14 +44,43 @@
     },
     {
       "id": "final",
-      "name": "Final Exam — Everything",
+      "name": "Final Exam — First Half",
       "date": "",
-      "chapters": ["ch2", "ch3", "ch4", "ch6", "ch7"],
+      "chapters": [
+        "ch2",
+        "ch3",
+        "ch4",
+        "ch6",
+        "ch7"
+      ],
       "topics": [],
       "questionCount": 60,
       "minutes": 75,
       "passMark": 80,
-      "note": "Comprehensive review across every chapter in the game."
+      "note": "Chapters from the first half of the semester. Finals Prep covers everything."
+    },
+    {
+      "id": "finals-prep",
+      "name": "Finals Prep — Full Semester",
+      "date": "",
+      "half": 2,
+      "chapters": [
+        "ch2",
+        "ch3",
+        "ch4",
+        "ch5",
+        "ch6",
+        "ch7",
+        "ch8",
+        "ch9",
+        "ch10",
+        "icf"
+      ],
+      "topics": [],
+      "questionCount": 75,
+      "minutes": 90,
+      "passMark": 80,
+      "note": "Everything from the whole semester, both halves, in one run. Your instructor opened this for finals."
     }
   ]
 }
