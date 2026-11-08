@@ -1221,12 +1221,20 @@
       '<div class="hr"></div>' +
       '<div class="field"><label for="nm">Your name</label>' +
       '<input id="nm" type="text" autocomplete="name" placeholder="First and last name" value="' + esc(S.profile.name) + '"></div>' +
+      // Kept as "class code", not "room code": the projector already calls the
+      // four letters it reads out for a live round the room code, and a student
+      // holding two different codes both called the same thing is a support
+      // question waiting to happen.
       '<div class="field"><label for="cc">Class code <span class="faint">(from your instructor)</span></label>' +
       '<input id="cc" type="text" autocomplete="off" autocapitalize="characters" placeholder="e.g. RT101" value="' + esc(S.profile.classCode) + '"></div>' +
       '<button class="btn" data-start>Start studying</button>' +
-      '<div class="spacer-sm"></div>' +
-      '<button class="btn ghost sm" data-skip>Skip &mdash; just let me practise</button>' +
-      '<p class="faint center" style="margin:12px 0 0">With a name and class code your progress saves so your instructor can see where the class is struggling. Without one, progress stays on this device only.</p>' +
+      '<p class="faint" id="startNote" style="margin:10px 0 0"></p>' +
+      // The "just let me practise" way in used to sit here. It cost a student
+      // their class: no live rounds, no progress their instructor could see,
+      // and none of the units she had opened - with no way back, because the
+      // room code was only ever asked for on this screen. Both are needed now.
+      '<p class="faint center" style="margin:12px 0 0">Your name and class code keep your progress with your class, ' +
+      'so your instructor can see where everyone is and you can join the live games.</p>' +
       '</div>';
   }
 
@@ -3195,17 +3203,20 @@
 
     var start = app.querySelector('[data-start]');
     if (start) start.onclick = function () {
-      var nm = app.querySelector('#nm').value.trim();
-      var cc = app.querySelector('#cc').value.trim().toUpperCase();
-      if (!nm) { app.querySelector('#nm').focus(); return; }
+      var nmBox = app.querySelector('#nm');
+      var ccBox = app.querySelector('#cc');
+      var note = app.querySelector('#startNote');
+      var nm = nmBox.value.trim();
+      var cc = ccBox.value.trim().toUpperCase();
+      // Both, now. Said rather than just refused: an unexplained button that
+      // does nothing reads as a broken app, not as a missing field.
+      if (!nm) { note.textContent = 'Your name goes in first, so your instructor knows whose work is whose.'; nmBox.focus(); return; }
+      if (!cc) { note.textContent = 'The class code comes from your instructor - it is what puts you in her class.'; ccBox.focus(); return; }
       S.profile.name = nm; S.profile.classCode = cc;
       save(); S.screen = 'map'; render();
       // Now that we know the class, ask it whether the second half is open.
       refreshSetup();
     };
-
-    var skip = app.querySelector('[data-skip]');
-    if (skip) skip.onclick = function () { S.screen = 'map'; render(); };
 
     app.querySelectorAll('[data-chapter]').forEach(function (b) {
       b.onclick = function () { startPractice(b.getAttribute('data-chapter')); };
