@@ -5,7 +5,8 @@
  *   POST /api/progress          student progress upsert (one batched write per round)
  *   GET  /api/classes           classes with students, biggest first
  *   GET  /api/class?code=       instructor roster view
- *   POST /api/hub/send          instructor message (and up to 20 screenshots, uploaded first) to Matt's Admin Hub, gated by the same PIN
+ *   POST /api/hub/send          instructor message to Matt's Admin Hub, with screenshots and files
+ *   POST /api/hub/file          one document, raw bytes, uploaded before the message that carries it
  *   POST /api/hub/thread        that conversation, Matt's replies included
  *
  * Firestore is reached with a Google service account signed in-Worker (RS256
@@ -2190,7 +2191,9 @@ export default {
             ok: true,
             project: env.FIREBASE_PROJECT_ID || null,
             firestore: backendReady(env) ? 'configured' : 'not configured',
-            dashboard: env.INSTRUCTOR_PIN ? 'pin set' : 'pin not set',
+            // No sign-in since 2026-11-06. Reporting on a PIN nothing reads
+            // would tell an operator the dashboard is protected when it is not.
+            dashboard: 'open - no sign-in',
             messages: env.HUB_KEY ? 'connected' : 'not connected'
           });
         }

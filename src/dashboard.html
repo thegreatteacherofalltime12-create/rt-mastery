@@ -37,8 +37,8 @@
              border-bottom: 1px dotted var(--line); }
   .linkbtn:hover { color: var(--accent-lit); border-bottom-color: var(--accent); }
 
-  /* The tabs only appear once the server has accepted her PIN, so nobody who
-     opens this page without it sees there is a line to Matt at all. */
+  /* The tabs appear once a class has loaded. There is no sign-in: this page
+     opens for anyone who reaches the address. */
   .tabrow { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
   /* The projector view runs in here so her whole job is one link. It is a full
      page in its own right, so it gets room to breathe and its own scrollbar. */
@@ -174,7 +174,7 @@
     <div class="card">
       <h3>The link you give your students</h3>
       <p class="faint" style="margin-top:-4px">This one is theirs. It shows the game and nothing else &mdash; no
-        roster, no PIN box, nothing of yours.</p>
+        roster, none of the instructor tabs, nothing of yours.</p>
       <p class="sharelink" id="shareLink"></p>
       <button class="btn ghost sm" id="shareCopy">Copy the student link</button>
       <p class="faint" id="shareNote" style="margin-top:10px"></p>
@@ -487,7 +487,7 @@
 
   // ------------------------------------------------ Message Project Manager
   //
-  // Everything goes through this app's own Worker with her PIN; the Worker
+  // Everything goes through this app's own Worker; the Worker
   // holds the hub's key and the browser never sees it. Nothing here touches
   // Firestore, so refreshing the thread costs the free tier nothing.
   var MSG_MAX = 4000;
@@ -543,12 +543,13 @@
     }
   }
 
-  // A rejected PIN takes the tabs away again, so a wrong PIN never shows them.
+  // A refused read takes the tabs away again, rather than leaving a dead page
+  // that looks like it is working.
   function lockTabs() {
     showTab('class');
     tabs.style.display = 'none';
-    // and the room frame goes with them, so nothing keeps polling with a PIN
-    // the server has just refused.
+    // and the room frame goes with them, so nothing keeps polling a class the
+    // server has just refused.
     liveFrame.setAttribute('src', 'about:blank');
   }
 

@@ -32,7 +32,7 @@ Phone-first web app  ·  No login, no app install  ·  Free to run
 | **Exam prep** | Timed runs scoped to whatever an upcoming exam covers. Configured by the instructor in one JSON file. |
 | **Weak-topic tracking** | The app surfaces each student's weakest topics, and the dashboard rolls that up across the whole class. |
 | **Instructor dashboard** | Who has studied, how far they've got, best exam score, and what the class as a whole is failing — so it can be re-taught. |
-| **Message Project Manager** | A dashboard tab for messaging the app's maintainer. The Worker checks the PIN and relays it server-side; no key reaches the browser and no Firestore operation is spent. |
+| **Message Project Manager** | A dashboard tab for messaging the app's maintainer, with screenshots and documents. The Worker relays it server-side; the hub key never reaches the browser and no Firestore operation is spent. |
 
 Students identify themselves with a name and a class code. No accounts, no passwords, no barrier
 between opening the link and answering the first question.
@@ -53,7 +53,7 @@ between opening the link and answering the first question.
 │  Cloudflare Worker   │  serves dist/ as static assets (unmetered on the free plan)
 │  · RS256 JWT signing │  mints a Google service-account token with Web Crypto
 │  · /api/progress     │  no Firebase credentials ever reach the browser
-│  · /api/class        │  instructor roster, gated by a server-checked PIN
+│  · /api/class        │  instructor roster — see "The dashboard is open"
 └──────────┬───────────┘
            ▼
 ┌──────────────────────┐
@@ -101,6 +101,21 @@ npm run build
 
 ---
 
+## The dashboard is open
+
+There is no instructor sign-in. `/dashboard.html` opens for anyone who reaches it, and the same
+is true of the routes behind it: `/api/classes`, `/api/class`, `/api/grant` and `/api/setup` all
+answer without credentials. A PIN gated them until 2026-11-06; it was removed deliberately, to
+get an instructor straight to her class without typing anything.
+
+Know what that means before copying this setup. Anyone with the address can read the roster -
+student names, progress, weakest topics, exam scores - and can hand out tokens or open the second
+half of the semester. The addresses are not published or linked from the student page, so in
+practice it is the obscurity of the URL that keeps it quiet, and a URL is not a secret: it travels
+in shared screens, bookmarks and chat messages.
+
+If you need it closed again, the PIN it used to use is in the history of this repo
+(`git log -- worker/index.js`, around 2026-11-06); `pinOk` and its call sites are what to restore.
 ## Deploying
 
 See **[DEPLOY.md](DEPLOY.md)** for the full walkthrough. Short version:
@@ -109,7 +124,6 @@ See **[DEPLOY.md](DEPLOY.md)** for the full walkthrough. Short version:
 npx wrangler login
 npx wrangler secret put FIREBASE_CLIENT_EMAIL
 npx wrangler secret put FIREBASE_PRIVATE_KEY
-npx wrangler secret put INSTRUCTOR_PIN
 npx wrangler secret put HUB_KEY      # optional: the dashboard's Message Project Manager tab
 npm run deploy
 ```

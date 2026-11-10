@@ -51,15 +51,14 @@ Set the secrets:
 ```bash
 npx wrangler secret put FIREBASE_CLIENT_EMAIL
 npx wrangler secret put FIREBASE_PRIVATE_KEY
-npx wrangler secret put INSTRUCTOR_PIN
 ```
 
 For `FIREBASE_PRIVATE_KEY`, paste the **entire** value including the
 `-----BEGIN PRIVATE KEY-----` and `-----END PRIVATE KEY-----` lines. The Worker handles both real
 newlines and the `\n` escapes that appear in the JSON file.
 
-`INSTRUCTOR_PIN` is whatever you choose — it gates the dashboard. Pick something that is not the
-class code.
+There is no instructor PIN. The dashboard was gated by one until 2026-11-06; it now opens for
+anyone who has the address, which is a deliberate choice — see **The dashboard is open** below.
 
 One more, for the dashboard's **Message Project Manager** tab (the instructor's line to Matt's
 Admin Hub):
@@ -69,7 +68,7 @@ npx wrangler secret put HUB_KEY
 ```
 
 Paste this app's project key from the Admin Hub's own setup. It stays on the Worker: the dashboard
-talks only to this Worker, which checks the instructor PIN and then calls the hub itself. Until it
+talks only to this Worker, which calls the hub itself. Until it
 is set, the tab says "not connected yet" and everything else works as before. The tab costs no
 Firestore reads or writes.
 
@@ -101,13 +100,28 @@ curl https://rt-mastery.<your-subdomain>.workers.dev/api/health
 
 1. Pick a class code, e.g. `RT101`.
 2. Send students the link and the code. That is all they need — no accounts, no install.
-3. Open `/dashboard.html`, enter the class code and your PIN.
+3. Open `/dashboard.html`. It finds the class itself; there is nothing to type.
 
 Students who skip the class code still get the full game; their progress just stays on their own
 device and will not appear on your dashboard.
 
 ---
 
+## The dashboard is open
+
+There is no instructor sign-in. `/dashboard.html` opens for anyone who reaches it, and the same
+is true of the routes behind it: `/api/classes`, `/api/class`, `/api/grant` and `/api/setup` all
+answer without credentials. A PIN gated them until 2026-11-06; it was removed deliberately, to
+get an instructor straight to her class without typing anything.
+
+Know what that means before copying this setup. Anyone with the address can read the roster -
+student names, progress, weakest topics, exam scores - and can hand out tokens or open the second
+half of the semester. The addresses are not published or linked from the student page, so in
+practice it is the obscurity of the URL that keeps it quiet, and a URL is not a secret: it travels
+in shared screens, bookmarks and chat messages.
+
+If you need it closed again, the PIN it used to use is in the history of this repo
+(`git log -- worker/index.js`, around 2026-11-06); `pinOk` and its call sites are what to restore.
 ## Local development
 
 ```bash
@@ -128,12 +142,11 @@ Create a `.dev.vars` file (already gitignored) for local secrets:
 ```
 FIREBASE_CLIENT_EMAIL=...
 FIREBASE_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----\n"
-INSTRUCTOR_PIN=1234
 HUB_KEY=...
 ```
 
 `node test/live-server.mjs` needs none of this: it runs the real Worker against a fake Firestore
-and a fake Admin Hub, so the dashboard and its message tab can be tried with PIN `1234`.
+and a fake Admin Hub, so the dashboard and its message tab can be tried without any setup.
 
 ---
 
@@ -160,8 +173,8 @@ lines.
 **`firestore write failed` / 403** — the Firestore database has not been created yet (step 1.2), or
 `FIREBASE_PROJECT_ID` in `wrangler.toml` does not match the service account's project.
 
-**Dashboard says `invalid pin`** — `INSTRUCTOR_PIN` was never set, or was set on a different Worker.
-Re-run `wrangler secret put INSTRUCTOR_PIN` then `npm run deploy`.
+**Dashboard shows no class** — it lists classes from `/api/classes`, which only returns a class once
+a student has played in it. An empty roster means nobody has started yet, not a broken dashboard.
 
 **Message tab says `not connected yet`** — `HUB_KEY` was never set on this Worker. Run
 `wrangler secret put HUB_KEY`. If it says the hub "did not recognise this app", the key is set but

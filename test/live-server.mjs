@@ -149,7 +149,7 @@ http.createServer(async (req, res) => {
   res.end(readFileSync(file));
 }).listen(PORT, () => {
   console.log(`real Worker + fake Firestore on http://localhost:${PORT}`);
-  console.log(`  projector  http://localhost:${PORT}/room    (any class code, PIN 1234)`);
+  console.log(`  projector  http://localhost:${PORT}/room    (any class code)`);
   console.log(`  student    http://localhost:${PORT}/`);
-  console.log(`  dashboard  http://localhost:${PORT}/dashboard  (PIN 1234; the hub is faked)`);
+  console.log(`  dashboard  http://localhost:${PORT}/dashboard  (no sign-in; the hub is faked)`);
 });
