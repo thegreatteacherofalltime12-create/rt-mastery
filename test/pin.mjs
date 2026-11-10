@@ -7,6 +7,8 @@
  *   node test/pin.mjs
  */
 
+import { makeFirestore, testEnv } from './fake-firestore.mjs';
+
 console.log('all 0 PIN checks hold (PIN validation removed 2026-11-06)');
 process.exit(0);
 
