@@ -353,11 +353,25 @@
     } catch (e) { /* corrupt or blocked storage — start fresh */ }
     // One link for the whole class: the instructor's Student link tab hands out
     // /?class=RT101, so the code is already filled in and nobody mistypes it.
-    // Her saved code wins if she has one - a student who is already playing is
-    // not moved to another class by opening a link.
+    //
+    // The link WINS over a saved code. It used to fill in only an empty one, on
+    // the idea that opening a link should not move a student - and that is
+    // exactly how two of Jess's ten were kept out of a live round: their phones
+    // already held a different code (a typo, an old test class), ignored her
+    // link, and looked for her round in the wrong class, where it does not
+    // exist. The link comes from the instructor, so it is the truth about which
+    // class this student is in.
     try {
       var fromLink = new URLSearchParams(location.search).get('class');
-      if (fromLink && !S.profile.classCode) S.profile.classCode = fromLink.trim();
+      var want = String(fromLink || '').trim().toUpperCase();
+      if (want && want !== String(S.profile.classCode || '').trim().toUpperCase()) {
+        S.profile.classCode = want;
+        // A class is a different set of rows, so the id the phone held for the
+        // old class is not carried across. The server finds or makes the right
+        // row in the new one - including a row this student left there before.
+        S.profile.studentId = '';
+        save();
+      }
     } catch (e) { /* no URLSearchParams: she types the code as before */ }
     document.documentElement.setAttribute('data-theme', S.theme);
   }
