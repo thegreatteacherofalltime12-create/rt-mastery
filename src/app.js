@@ -284,6 +284,24 @@
   // dropped connection would be a worse failure than showing it a minute late.
   var SETUP_KEY = 'rt-setup-v1';
 
+  // A live round's room code is exactly four letters (the Worker refuses anything
+  // else), and students hear one read out loud in class. Typed into the CLASS
+  // code box it quietly makes a class of one: on the day this was written a
+  // student did exactly that, landed in a class called "cmgz", and could not
+  // join the round, because a round is looked up under the student's class.
+  //
+  // So four letters and nothing else gets one warning. It is a warning, not a
+  // wall: pressing again with the same code goes through, because an
+  // instructor is free to choose a four-letter class code of her own.
+  var roomCodeWarned = '';
+  function roomCodeMistake(cc, note) {
+    if (!/^[A-Z]{4}$/.test(cc) || roomCodeWarned === cc) return false;
+    roomCodeWarned = cc;
+    note.textContent = '“' + cc + '” looks like a live round’s room code. Your class code is the one ' +
+      'from your instructor (it usually has numbers in it). If ' + cc + ' really is your class code, press again.';
+    return true;
+  }
+
   function readSecondHalfCache() {
     try {
       var raw = localStorage.getItem(SETUP_KEY);
@@ -3226,6 +3244,7 @@
       // does nothing reads as a broken app, not as a missing field.
       if (!nm) { note.textContent = 'Your name goes in first, so your instructor knows whose work is whose.'; nmBox.focus(); return; }
       if (!cc) { note.textContent = 'The class code comes from your instructor - it is what puts you in her class.'; ccBox.focus(); return; }
+      if (roomCodeMistake(cc, note)) { ccBox.focus(); return; }
       S.profile.name = nm; S.profile.classCode = cc;
       save(); S.screen = 'map'; render();
       // Now that we know the class, ask it whether the second half is open.
@@ -3245,6 +3264,7 @@
       var note = app.querySelector('#joinNote');
       var cc = (codeBox && codeBox.value.trim().toUpperCase()) || '';
       if (!cc) { note.textContent = 'Enter the code your instructor gave you.'; codeBox.focus(); return; }
+      if (roomCodeMistake(cc, note)) { codeBox.focus(); return; }
       if (nameBox) {
         var nm = nameBox.value.trim();
         if (!nm) { note.textContent = 'Your name goes with it, so she knows whose work is whose.'; nameBox.focus(); return; }
